@@ -19,6 +19,7 @@ from pathlib import Path
 import polars as pl
 from deltalake import DeltaTable, write_deltalake
 
+from . import sizes
 from .bronze import DATA_DIR, BronzeFile
 
 MONEY = pl.Decimal(12, 2)
@@ -39,6 +40,11 @@ SCHEMA = {
     "promo_rate": pl.Float64,
     "has_promo": pl.Boolean,
     "is_out_of_stock": pl.Boolean,
+    # Pack size in kg, litres or items, and the shelf price per one of those.
+    "pack_quantity": pl.Float64,
+    "pack_unit": pl.String,
+    "size_source": pl.String,
+    "unit_price": MONEY,
     "fetched_at": pl.Datetime("us", "UTC"),
 }
 KEY = ("store", "snapshot_date", "product_id")
@@ -74,13 +80,15 @@ def glomark_rows(files: Iterable[BronzeFile]) -> pl.DataFrame:
             prices = p.get("priceDetails") or {}
             price = _money(prices.get("price", p.get("price")))
             promo_price = _money(prices.get("promoPrice", p.get("promoPrice")))
+            name = " ".join((p.get("name") or "").split())
+            size = sizes.glomark_size(name, p.get("unit"), p.get("displayQuantity"))
             rows.append(
                 {
                     "store": file.store,
                     "snapshot_date": file.snapshot_date,
                     "product_id": p["id"],
                     "sku": p.get("erpCode"),
-                    "name": " ".join((p.get("name") or "").split()),
+                    "name": name,
                     "brand": _name(p.get("brandDetails")),
                     "department": _name(p.get("department")),
                     "category": _name(p.get("categoryDetails")),
@@ -96,6 +104,10 @@ def glomark_rows(files: Iterable[BronzeFile]) -> pl.DataFrame:
                     and price is not None
                     and promo_price < price,
                     "is_out_of_stock": bool(p.get("isOutOfStock")),
+                    "pack_quantity": size.quantity if size else None,
+                    "pack_unit": size.unit if size else None,
+                    "size_source": size.source if size else None,
+                    "unit_price": sizes.unit_price(price, size),
                     "fetched_at": file.fetched_at,
                 }
             )
