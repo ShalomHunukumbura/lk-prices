@@ -1,0 +1,13 @@
+[Unit]
+Description=lk-prices daily fetch
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+ExecStart=%h/personal-shalom/skill-tracks/data-engineering/04-lk-prices/scripts/daily.sh
+# A failed run is retried after 10 minutes, at most twice an hour.
+Restart=on-failure
+RestartSec=10min

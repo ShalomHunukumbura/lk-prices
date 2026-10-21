@@ -1,0 +1,10 @@
+[Unit]
+Description=Run lk-prices every morning
+
+[Timer]
+OnCalendar=*-*-* 08:30:00 Asia/Colombo
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

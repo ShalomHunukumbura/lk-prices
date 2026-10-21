@@ -5,8 +5,8 @@ official CPI comes out once a month. This pipeline reads supermarket prices ever
 keeps them as [Delta Lake](https://delta.io/) tables, which will feed a daily food price
 index.
 
-**Status:** in progress. Glomark is collected daily, about 5,000 products. Keells and
-Cargills, unit prices, the index and the public page are next.
+**Status:** in progress. Glomark is collected daily, about 5,000 products, 95% of them with a
+price per kg, litre or item. Keells and Cargills, the index and the public page are next.
 
 ## How it works
 
@@ -23,6 +23,10 @@ silver       bronze  -> checks -> MERGE into the silver Delta table
 - **silver** is one typed row per store, product and day in `data/silver/prices`, partitioned
   by date. Loads are a `MERGE` on (store, date, product), so loading a day twice changes
   nothing.
+- **unit prices** make packs comparable. Weighed items (chicken, fish) take their weight from
+  the store's own fields. Everything else is read from the name: `400G`, `1.5L`, multipacks
+  like `10X18G`, and tea's `20S 40G` (the weight, not the bag count). Bundles such as
+  `Shampoo 180Ml+Conditioner 180Ml` get no unit price, because a wrong one is worse than none.
 - **checks** stop a load if a price is zero or missing, a promo price is above the shelf price,
   or a product appears twice. A big drop in product count is reported as a warning.
 - **rebuild** recreates silver from all of bronze after a parsing change. It overwrites the
@@ -40,6 +44,20 @@ uv run lk-prices stats      # rows per store and day
 uv run lk-prices rebuild    # rebuild silver from bronze
 uv run pytest
 ```
+
+## Schedule
+
+A systemd user timer runs `scripts/daily.sh` at 08:30 Colombo time. The units are in
+`deploy/systemd/`:
+
+```bash
+cp deploy/systemd/lk-prices.* ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now lk-prices.timer
+journalctl --user -u lk-prices.service    # logs
+```
+
+A day that is missed can't be fetched later, so the timer is `Persistent`: a machine that was
+off at 08:30 runs it as soon as it is back.
 
 ## Being polite to the stores
 
