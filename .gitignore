@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+*.tmp
+
+# Raw pages and lakehouse tables stay on this machine; only the page data is published.
+data/
+
+# The explainer stays local.
+explain.md
+explain.pdf
