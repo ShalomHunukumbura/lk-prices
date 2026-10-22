@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# The daily run: fetch today's prices into bronze, then load silver.
+# The daily run: find new CBSL price reports, download them, and load silver.
 #
-# Prices can't be fetched for a day that has passed, so a missed day is a gap
-# for good. The timer is Persistent, so a laptop that was off at the scheduled
-# time catches up as soon as it wakes.
+# CBSL blocks GitHub's servers, so this runs on a local machine. It is safe to
+# run more than once a day: every step only does what is still missing.
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
 cd "$(dirname "$0")/.."
 
-# Exits non-zero if categories failed or a check stopped the load. Bronze is
-# resumable, so running this again only fetches what is missing.
+# Exits non-zero if a download failed or a report was rejected; the next run
+# retries the download, and `lk-prices stats` lists the rejects.
 uv run lk-prices run

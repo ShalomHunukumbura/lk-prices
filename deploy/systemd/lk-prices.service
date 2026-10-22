@@ -1,5 +1,5 @@
 [Unit]
-Description=lk-prices daily fetch
+Description=lk-prices daily CBSL price report update
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=1h
