@@ -1,72 +1,50 @@
-"""Quality checks a day's rows must pass before they reach silver.
+"""Quality checks one report's rows must pass before they reach silver.
 
-Errors stop the load: a price of zero or a promo above the shelf price means the
-parse is wrong, and loading it would put a fake spike in the index. Warnings are
-reported but don't block, because a store really can drop part of its range.
+A report that fails is rejected, not loaded: a misread column would put wrong
+prices in ten years of history, and that is much harder to find later than a
+report that is missing and listed in `rejects`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import polars as pl
 
-# A day with fewer products than this share of the previous day's count is suspect.
-MIN_SHARE_OF_PREVIOUS = 0.7
+# A normal report has 155 to 170 prices. Fewer than this means the table was only
+# partly read. It is set low on purpose: just after a holiday some markets are
+# still closed (17 April 2026 had 57 prices, with Pettah and Narahenpita closed).
+MIN_PRICES = 30
+KNOWN_UNITS = {"kg", "l", "each", "nut"}
+# Retail below half of wholesale for the same item and market is not a real
+# price; it means a number landed in the wrong column.
+MIN_RETAIL_TO_WHOLESALE = 0.5
 
 
-@dataclass(frozen=True)
-class Finding:
-    level: str  # "error" or "warning"
-    check: str
-    detail: str
+def problems(rows: pl.DataFrame) -> list[str]:
+    found = []
+    if rows.height < MIN_PRICES:
+        found.append(f"only {rows.height} prices (expected at least {MIN_PRICES})")
+    duplicates = rows.height - rows.select("report_date", "item", "market", "price_type").n_unique()
+    if duplicates:
+        found.append(f"{duplicates} duplicate (date, item, market, price type) rows")
+    units = set(rows["unit"].drop_nulls().unique()) - KNOWN_UNITS
+    if units:
+        found.append(f"unknown units {sorted(units)}")
+    if rows["unit"].null_count():
+        found.append(f"{rows['unit'].null_count()} rows without a unit")
+    if rows["report_date"].n_unique() > 1:
+        found.append("more than one report date in one report")
 
-
-def run_checks(rows: pl.DataFrame, previous_count: int | None = None) -> list[Finding]:
-    findings: list[Finding] = []
-
-    def add(level: str, check: str, count: int, what: str) -> None:
-        if count:
-            findings.append(Finding(level, check, f"{count} {what}"))
-
-    if rows.is_empty():
-        return [Finding("error", "not_empty", "no rows at all")]
-
-    add(
-        "error",
-        "price_positive",
-        rows.filter(pl.col("price").is_null() | (pl.col("price") <= 0)).height,
-        "products with a missing or non-positive price",
+    both = rows.filter(pl.col("price").is_not_null()).pivot(
+        on="price_type", index=["item", "market"], values="price", aggregate_function="first"
     )
-    add(
-        "error",
-        "promo_not_above_price",
-        rows.filter(pl.col("promo_price") > pl.col("price")).height,
-        "products whose promo price is above the shelf price",
-    )
-    add(
-        "error",
-        "unique_key",
-        rows.height - rows.select("store", "snapshot_date", "product_id").n_unique(),
-        "duplicate (store, date, product) rows",
-    )
-    add(
-        "warning",
-        "has_name",
-        rows.filter(pl.col("name").is_null() | (pl.col("name") == "")).height,
-        "products without a name",
-    )
-
-    if previous_count and rows.height < previous_count * MIN_SHARE_OF_PREVIOUS:
-        findings.append(
-            Finding(
-                "warning",
-                "row_count",
-                f"{rows.height} products, down from {previous_count} the day before",
-            )
+    if {"wholesale", "retail"} <= set(both.columns):
+        odd = both.filter(
+            pl.col("retail").cast(pl.Float64)
+            < pl.col("wholesale").cast(pl.Float64) * MIN_RETAIL_TO_WHOLESALE
         )
-    return findings
-
-
-def has_errors(findings: list[Finding]) -> bool:
-    return any(f.level == "error" for f in findings)
+        if odd.height:
+            sample = ", ".join(
+                f"{r['item']} at {r['market']}" for r in odd.head(3).iter_rows(named=True)
+            )
+            found.append(f"{odd.height} retail prices below half of wholesale ({sample})")
+    return found

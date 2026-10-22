@@ -1,117 +1,128 @@
-"""The silver layer: one clean, typed row per store, product and day.
+"""The silver layer: one clean row per report date, item, market and price type.
 
-Bronze keeps each store's own nested JSON. Silver flattens it into a single
-schema and writes it to a Delta Lake table at `data/silver/prices`, partitioned
-by `snapshot_date`.
+    data/silver/prices/     Delta table, partitioned by year
+    data/silver/rejects/    Delta table: PDFs that could not be read, and why
 
-Loads are a MERGE on (store, snapshot_date, product_id), not an append, so
-loading the same day twice leaves the table exactly as it was.
+Partitioned by year, not by day: a day is only about 160 rows, and ten years of
+daily partitions would be thousands of tiny files, which is slower to read than a
+few larger ones.
+
+Loads are a MERGE on the key, so loading a report twice changes nothing. A PDF
+that doesn't parse is recorded in `rejects` instead of stopping the run, which is
+how a new layout shows up.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import re
 from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import polars as pl
 from deltalake import DeltaTable, write_deltalake
 
-from . import sizes
-from .bronze import DATA_DIR, BronzeFile
+from .bronze import DATA_DIR
+from .parse import Price
 
 MONEY = pl.Decimal(12, 2)
 SCHEMA = {
-    "store": pl.String,
-    "snapshot_date": pl.Date,
-    "product_id": pl.Int64,
-    "sku": pl.String,
-    "name": pl.String,
-    "brand": pl.String,
-    "department": pl.String,
-    "category": pl.String,
-    "subcategory": pl.String,
+    "year": pl.Int32,
+    # The date printed in the PDF. The listing's title and file name are wrong for
+    # a few dozen reports (a 2019 report titled 2018, an old file name reused), so
+    # the PDF's own date is the one used; the listing's is kept to show where they differ.
+    "report_date": pl.Date,
+    "listed_date": pl.Date,
+    "section": pl.String,
+    "item": pl.String,  # tidied, e.g. "Red Onion (Imp)"
+    "item_as_printed": pl.String,
     "unit": pl.String,
-    "display_quantity": pl.Float64,
+    "market": pl.String,
+    "price_type": pl.String,
     "price": MONEY,
-    "promo_price": MONEY,
-    "promo_rate": pl.Float64,
-    "has_promo": pl.Boolean,
-    "is_out_of_stock": pl.Boolean,
-    # Pack size in kg, litres or items, and the shelf price per one of those.
-    "pack_quantity": pl.Float64,
-    "pack_unit": pl.String,
-    "size_source": pl.String,
-    "unit_price": MONEY,
-    "fetched_at": pl.Datetime("us", "UTC"),
+    "previous_price": MONEY,
+    "layout": pl.String,
+    "source_file": pl.String,
+    "loaded_at": pl.Datetime("us", "UTC"),
 }
-KEY = ("store", "snapshot_date", "product_id")
+KEY = ("report_date", "item", "market", "price_type")
+REJECT_SCHEMA = {
+    "source_file": pl.String,
+    "error": pl.String,
+    "rejected_at": pl.Datetime("us", "UTC"),
+}
 
 
-def silver_path(root: Path = DATA_DIR) -> Path:
+def prices_path(root: Path = DATA_DIR) -> Path:
     return root / "silver" / "prices"
 
 
-def _money(value) -> Decimal | None:
-    if value is None:
-        return None
-    return Decimal(str(value)).quantize(Decimal("0.01"))
+def rejects_path(root: Path = DATA_DIR) -> Path:
+    return root / "silver" / "rejects"
 
 
-def _name(obj) -> str | None:
-    return obj.get("name") if isinstance(obj, dict) else None
+def tidy_item(name: str) -> str:
+    """Fix the typing slips in item names so one item has one name over the years."""
+    name = " ".join(name.split())
+    # "Red Onion (lmp)" uses a lower-case L for "Imp" (imported).
+    name = re.sub(r"\((?:lmp|imp|Imp\.?)\)", "(Imp)", name)
+    return name
 
 
-def glomark_rows(files: Iterable[BronzeFile]) -> pl.DataFrame:
-    """Flatten a day of Glomark bronze files.
+def rows_from(
+    prices: list[Price], layout: str, source_file: str, listed_date: date | None = None
+) -> pl.DataFrame:
+    now = datetime.now(UTC)
+    return pl.DataFrame(
+        [
+            {
+                "year": p.report_date.year,
+                "report_date": p.report_date,
+                "listed_date": listed_date or p.report_date,
+                "section": p.section,
+                "item": tidy_item(p.item),
+                "item_as_printed": p.item,
+                "unit": p.unit,
+                "market": p.market,
+                "price_type": p.price_type,
+                "price": p.price,
+                "previous_price": p.previous_price,
+                "layout": layout,
+                "source_file": source_file,
+                "loaded_at": now,
+            }
+            for p in prices
+        ],
+        schema=SCHEMA,
+    )
 
-    A product can sit in more than one category page. It is the same product at
-    the same price, so it is kept once, from the first page it appears on.
+
+def upload_rank(file_name: str) -> int:
+    """How late a file was uploaded among files of the same name.
+
+    When a file is uploaded again under a name already taken, the website adds
+    _0, _1, ... ("Daily Price Report - 17 05 2017_0.pdf"). The later upload is
+    CBSL's correction, so it should win.
     """
-    rows = []
-    seen: set[int] = set()
-    for file in files:
-        for p in file.products:
-            if p["id"] in seen:
-                continue
-            seen.add(p["id"])
-            prices = p.get("priceDetails") or {}
-            price = _money(prices.get("price", p.get("price")))
-            promo_price = _money(prices.get("promoPrice", p.get("promoPrice")))
-            name = " ".join((p.get("name") or "").split())
-            size = sizes.glomark_size(name, p.get("unit"), p.get("displayQuantity"))
-            rows.append(
-                {
-                    "store": file.store,
-                    "snapshot_date": file.snapshot_date,
-                    "product_id": p["id"],
-                    "sku": p.get("erpCode"),
-                    "name": name,
-                    "brand": _name(p.get("brandDetails")),
-                    "department": _name(p.get("department")),
-                    "category": _name(p.get("categoryDetails")),
-                    "subcategory": _name(p.get("subCategoryDetails")),
-                    "unit": p.get("unit"),
-                    "display_quantity": p.get("displayQuantity"),
-                    "price": price,
-                    "promo_price": promo_price,
-                    "promo_rate": prices.get("promoRate", p.get("promoRate")),
-                    # Glomark's own hasPromo flag is false even on discounted
-                    # products, so a promo is read from the prices instead.
-                    "has_promo": promo_price is not None
-                    and price is not None
-                    and promo_price < price,
-                    "is_out_of_stock": bool(p.get("isOutOfStock")),
-                    "pack_quantity": size.quantity if size else None,
-                    "pack_unit": size.unit if size else None,
-                    "size_source": size.source if size else None,
-                    "unit_price": sizes.unit_price(price, size),
-                    "fetched_at": file.fetched_at,
-                }
-            )
-    return pl.DataFrame(rows, schema=SCHEMA)
+    match = re.search(r"_(\d+)\.pdf$", file_name)
+    return int(match.group(1)) + 1 if match else 0
+
+
+def latest_upload(rows: pl.DataFrame) -> pl.DataFrame:
+    """Keep one row per key when two files report the same day.
+
+    A file whose listed date matches the date inside it is preferred over one
+    whose listing is wrong; after that, the later upload wins.
+    """
+    ranked = rows.with_columns(
+        _agrees=pl.col("listed_date") == pl.col("report_date"),
+        _rank=pl.col("source_file").map_elements(upload_rank, return_dtype=pl.Int32),
+    )
+    return (
+        ranked.sort("_agrees", "_rank")
+        .unique(subset=list(KEY), keep="last", maintain_order=True)
+        .drop("_agrees", "_rank")
+    )
 
 
 @dataclass(frozen=True)
@@ -121,53 +132,88 @@ class MergeResult:
 
 
 def merge(rows: pl.DataFrame, root: Path = DATA_DIR) -> MergeResult:
-    """Upsert rows into the silver table, creating it on the first load."""
-    path = silver_path(root)
+    """Upsert rows into silver, creating the table on the first load."""
     if rows.is_empty():
         return MergeResult(0, 0)
+    path = prices_path(root)
     if not DeltaTable.is_deltatable(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_deltalake(str(path), rows, partition_by=["snapshot_date"])
+        write_deltalake(str(path), rows, partition_by=["year"])
         return MergeResult(rows.height, 0)
-
-    # Naming the days being loaded lets Delta skip every other partition.
-    days = ", ".join(f"'{d.isoformat()}'" for d in rows["snapshot_date"].unique().sort())
-    predicate = f"t.snapshot_date IN ({days}) AND " + " AND ".join(f"t.{k} = s.{k}" for k in KEY)
+    # Naming the years being loaded lets Delta skip every other partition.
+    years = ", ".join(str(y) for y in rows["year"].unique().sort())
+    predicate = f"t.year IN ({years}) AND " + " AND ".join(f"t.{k} = s.{k}" for k in KEY)
     metrics = (
         DeltaTable(str(path))
         .merge(source=rows, predicate=predicate, source_alias="s", target_alias="t")
-        # Bronze files are never rewritten, so an unchanged fetched_at means an
-        # unchanged row. Skipping those keeps a re-run from writing new files.
-        .when_matched_update_all(predicate="s.fetched_at <> t.fetched_at")
+        # Only rewrite a row if a value changed, so a re-run writes no new files.
+        .when_matched_update_all(
+            # Each test in brackets: DataFusion misreads IS DISTINCT FROM next to OR.
+            predicate="(s.price IS DISTINCT FROM t.price) "
+            "OR (s.previous_price IS DISTINCT FROM t.previous_price) "
+            "OR (s.source_file <> t.source_file)"
+        )
         .when_not_matched_insert_all()
         .execute()
     )
     return MergeResult(metrics["num_target_rows_inserted"], metrics["num_target_rows_updated"])
 
 
-def rebuild(rows: pl.DataFrame, root: Path = DATA_DIR) -> int:
-    """Replace the whole table with rows rebuilt from bronze.
-
-    This is for when the parsing changes. It is an overwrite, not a delete, so the
-    previous version stays readable through Delta's time travel until vacuumed.
-    """
-    path = silver_path(root)
+def overwrite(rows: pl.DataFrame, root: Path = DATA_DIR) -> None:
+    """Replace the whole table. The old version stays readable by time travel."""
+    path = prices_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_deltalake(
-        str(path),
-        rows,
-        mode="overwrite",
-        partition_by=["snapshot_date"],
-        schema_mode="overwrite",
+        str(path), rows, mode="overwrite", partition_by=["year"], schema_mode="overwrite"
     )
-    return rows.height
 
 
-def read(root: Path = DATA_DIR, snapshot_date: date | None = None) -> pl.DataFrame:
-    path = silver_path(root)
+def read(root: Path = DATA_DIR) -> pl.DataFrame:
+    path = prices_path(root)
     if not DeltaTable.is_deltatable(str(path)):
         return pl.DataFrame(schema=SCHEMA)
-    frame = pl.scan_delta(str(path))
-    if snapshot_date is not None:
-        frame = frame.filter(pl.col("snapshot_date") == snapshot_date)
-    return frame.collect()
+    return pl.read_delta(str(path))
+
+
+def loaded_files(root: Path = DATA_DIR) -> set[str]:
+    path = prices_path(root)
+    if not DeltaTable.is_deltatable(str(path)):
+        return set()
+    return set(pl.scan_delta(str(path)).select("source_file").unique().collect()["source_file"])
+
+
+def record_reject(source_file: str, error: str, root: Path = DATA_DIR) -> None:
+    row = pl.DataFrame(
+        [{"source_file": source_file, "error": error, "rejected_at": datetime.now(UTC)}],
+        schema=REJECT_SCHEMA,
+    )
+    path = rejects_path(root)
+    if not DeltaTable.is_deltatable(str(path)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_deltalake(str(path), row)
+        return
+    (
+        DeltaTable(str(path))
+        .merge(
+            source=row,
+            predicate="t.source_file = s.source_file",
+            source_alias="s",
+            target_alias="t",
+        )
+        .when_matched_update_all()
+        .when_not_matched_insert_all()
+        .execute()
+    )
+
+
+def clear_reject(source_file: str, root: Path = DATA_DIR) -> None:
+    path = rejects_path(root)
+    if DeltaTable.is_deltatable(str(path)):
+        DeltaTable(str(path)).delete(f"source_file = '{source_file}'")
+
+
+def read_rejects(root: Path = DATA_DIR) -> pl.DataFrame:
+    path = rejects_path(root)
+    if not DeltaTable.is_deltatable(str(path)):
+        return pl.DataFrame(schema=REJECT_SCHEMA)
+    return pl.read_delta(str(path))

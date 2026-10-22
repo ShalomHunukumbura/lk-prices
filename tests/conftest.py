@@ -1,13 +1,8 @@
-from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 
-from lk_prices import glomark
-from lk_prices.bronze import BronzeFile
-
 FIXTURES = Path(__file__).parent / "fixtures"
-DAY = date(2026, 10, 21)
 
 
 @pytest.fixture
@@ -18,22 +13,26 @@ def fixture_text():
     return load
 
 
-@pytest.fixture
-def products(fixture_text):
-    """The three products in the saved Glomark bread page, as served (scrubbed)."""
-    return glomark.extract_products(fixture_text("glomark_category.html"))
+class FakeClient:
+    """Serves saved listing pages and PDFs instead of calling CBSL."""
+
+    def __init__(self, pages: dict[int, str], pdfs: dict[str, bytes] | None = None):
+        self.pages = pages
+        self.pdfs = pdfs or {}
+        self.listing_calls: list[int] = []
+
+    def listing(self, page: int) -> str:
+        self.listing_calls.append(page)
+        return self.pages[page]
+
+    def pdf(self, report) -> bytes:
+        from lk_prices.cbsl import SourceError
+
+        if report.url not in self.pdfs:
+            raise SourceError(f"{report.url}: HTTP 404")
+        return self.pdfs[report.url]
 
 
 @pytest.fixture
-def bronze_file(products):
-    def make(day: date = DAY, items: list[dict] | None = None, category_id: int = 118):
-        return BronzeFile(
-            store="glomark",
-            snapshot_date=day,
-            category_id=category_id,
-            url=f"https://glomark.lk/bakery/bread/c/{category_id}",
-            fetched_at=datetime(day.year, day.month, day.day, 1, 30, tzinfo=UTC),
-            products=products if items is None else items,
-        )
-
-    return make
+def fake_client():
+    return FakeClient
