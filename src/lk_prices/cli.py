@@ -10,7 +10,7 @@ from pathlib import Path
 import polars as pl
 
 from . import __version__, bronze, cbsl, silver
-from .checks import problems
+from .checks import implausible, problems
 from .parse import NotAReport, ParseError, parse_pdf
 
 
@@ -66,13 +66,18 @@ def fetch(root: Path, limit: int | None = None, client: cbsl.Client | None = Non
     return failed
 
 
-def _parse_file(path: Path, listed_date: date) -> pl.DataFrame:
+def _parse_file(path: Path, listed_date: date, root: Path) -> pl.DataFrame:
     """Parse and check one PDF. Raises ParseError with the reason if it can't be used."""
     layout, prices = parse_pdf(path.read_bytes())
     rows = silver.rows_from(prices, layout, path.name, listed_date)
     found = problems(rows)
     if found:
         raise ParseError("; ".join(found))
+    # A typing slip or two: keep the report, set those prices aside with the reason.
+    odd = implausible(rows)
+    if odd.height:
+        silver.quarantine(odd, "retail below half of wholesale", root)
+        rows = rows.join(odd.select(silver.KEY), on=list(silver.KEY), how="anti")
     return rows
 
 
@@ -100,7 +105,7 @@ def load_silver(root: Path, batch_size: int = 200) -> tuple[int, int]:
         frames = []
         for listed, path in todo[start : start + batch_size]:
             try:
-                frames.append(_parse_file(path, listed))
+                frames.append(_parse_file(path, listed, root))
                 silver.clear_reject(path.name, root)
             except ParseError as error:
                 # Notices and image-only PDFs are recorded but aren't failures:
@@ -124,7 +129,7 @@ def rebuild_silver(root: Path) -> None:
     frames = []
     for listed, path in _pdfs_on_disk(root):
         try:
-            frames.append(_parse_file(path, listed))
+            frames.append(_parse_file(path, listed, root))
             silver.clear_reject(path.name, root)
         except ParseError as error:
             silver.record_reject(path.name, str(error), root)

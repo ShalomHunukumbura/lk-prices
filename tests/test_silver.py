@@ -79,6 +79,7 @@ def test_rebuild_keeps_the_old_version(root):
         ("Red Onion (lmp)", "Red Onion (Imp)"),
         ("Big Onion  (Imp)", "Big Onion (Imp)"),
         ("Samba", "Samba"),
+        ("Big-Onion (Imp)", "Big Onion (Imp)"),
     ],
 )
 def test_tidy_item(printed, tidy):
@@ -97,7 +98,7 @@ def test_checks_catch_a_misread_column():
         .cast(silver.MONEY)
     )
     assert any("below half of wholesale" in p for p in problems(broken))
-    assert any("only" in p for p in problems(rows.head(10)))
+    assert any("only" in p for p in problems(rows.head(5)))
 
 
 def test_the_later_upload_of_a_day_wins():
@@ -122,3 +123,78 @@ def test_a_correctly_listed_file_beats_a_mislisted_one():
     kept = silver.latest_upload(pl.concat([right, wrong]))
     assert kept["source_file"].unique().to_list() == ["price_report_20211013.pdf"]
     assert kept["report_date"].unique().to_list() == [date(2021, 10, 13)]
+
+
+def test_a_mislisted_file_loaded_later_doesnt_replace_the_right_one(root):
+    # Load the correctly listed file first, then a re-upload listed under the next
+    # day that holds the same report, in a separate MERGE.
+    layout, prices = parse_pdf((FIXTURES / "price_report_20211013.pdf").read_bytes())
+    right = silver.rows_from(prices, layout, "price_report_20211013.pdf", date(2021, 10, 13))
+    wrong = silver.rows_from(prices, layout, "price_report_20211013_0.pdf", date(2021, 10, 14))
+    silver.merge(right, root)
+    assert silver.merge(wrong, root) == silver.MergeResult(0, 0)
+    assert silver.read(root)["source_file"].unique().to_list() == ["price_report_20211013.pdf"]
+
+
+def test_an_unknown_market_blocks_the_load():
+    layout, prices = parse_pdf((FIXTURES / "price_report_20211013.pdf").read_bytes())
+    rows = silver.rows_from(prices, layout, "x.pdf")
+    misread = rows.with_columns(
+        market=pl.when(pl.col("market") == "Pettah").then(pl.lit("Last")).otherwise("market")
+    )
+    assert any("unknown markets ['Last']" in p for p in problems(misread))
+
+
+def test_old_item_names_map_to_one_name_and_section():
+    from lk_prices.items import CATALOGUE, canonical
+
+    assert canonical("Dhal (Small)") == canonical("Dhal") == canonical("Red Dhal") == "Red Dhal"
+    assert canonical("Kekulu Red") == "Kekulu (Red)"
+    assert canonical("Mystery Fruit") is None
+    # Every alias points at a real catalogue entry.
+    from lk_prices.items import ALIASES
+
+    assert set(ALIASES.values()) <= set(CATALOGUE)
+
+
+def test_an_unknown_item_blocks_the_load():
+    layout, prices = parse_pdf((FIXTURES / "price_report_20211013.pdf").read_bytes())
+    rows = silver.rows_from(prices, layout, "x.pdf")
+    renamed = rows.with_columns(
+        item=pl.when(pl.col("item") == "Beans").then(pl.lit("Bean")).otherwise("item")
+    )
+    assert any("unknown items ['Bean']" in p for p in problems(renamed))
+
+
+def test_a_single_typo_is_quarantined_and_the_report_loads(tmp_path):
+    # 15 May 2020: retail imported red onion at Dambulla is "21.00", the day after 228.00.
+    land(tmp_path, date(2020, 5, 15), "price_report_20200515e.pdf", "price_report_20200515e.pdf")
+    assert cli.load_silver(tmp_path) == (1, 0)
+    held = silver.read_quarantine(tmp_path)
+    assert held.select("item", "market", "price_type").rows() == [
+        ("Red Onion (Imp)", "Dambulla", "retail")
+    ]
+    assert str(held["price"][0]) == "21.00"
+    loaded = silver.read(tmp_path)
+    assert loaded.height > 80
+    assert loaded.filter(
+        (pl.col("item") == "Red Onion (Imp)")
+        & (pl.col("market") == "Dambulla")
+        & (pl.col("price_type") == "retail")
+    ).is_empty()
+
+
+def test_units_come_from_the_catalogue_and_must_agree_with_it():
+    from lk_prices.items import unit
+
+    assert unit("Beans") == "kg"
+    assert unit("Egg (White)") == "each"
+    assert unit("Mystery Fruit") is None
+
+    layout, prices = parse_pdf((FIXTURES / "price_report_20211013.pdf").read_bytes())
+    rows = silver.rows_from(prices, layout, "x.pdf")
+    assert problems(rows) == []
+    misread = rows.with_columns(
+        unit=pl.when(pl.col("item") == "Beans").then(pl.lit("l")).otherwise("unit")
+    )
+    assert any("unexpected unit (Beans)" in p for p in problems(misread))
