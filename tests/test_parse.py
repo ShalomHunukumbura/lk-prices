@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from conftest import FIXTURES
 
-from lk_prices.parse import NotAReport, ParseError, _is_day_word, parse_pdf
+from lk_prices.parse import NotAReport, ParseError, _early_date, _is_day_word, _Word, parse_pdf
 
 
 @pytest.fixture(scope="module")
@@ -411,3 +411,82 @@ def test_a_page_whose_title_cant_be_read_takes_the_others_date():
 def test_a_trailing_chart_page_is_skipped():
     _, prices = parse_pdf((FIXTURES / "Price_Report_ 18012019e.pdf.pdf").read_bytes())
     assert {p.report_date for p in prices} == {date(2019, 1, 18)}
+
+
+@pytest.fixture(scope="module")
+def early():
+    # 1 August 2016: five pages, a table on each, and no year printed anywhere.
+    layout, prices = parse_pdf(
+        (FIXTURES / "price_report_20160801e.pdf").read_bytes(), listed=date(2016, 8, 1)
+    )
+    assert layout == "early"
+    return prices
+
+
+def test_early_layout_takes_the_year_from_the_listing(early):
+    assert {p.report_date for p in early} == {date(2016, 8, 1)}
+    assert {p.compared_with for p in early} == {"Previous 5 Days Average"}
+
+
+def test_early_layout_reads_the_first_page_too(early):
+    # Vegetables are on page 1; later layouts put a chart summary there.
+    assert {p.section for p in early} == {"vegetables", "rice", "fish", "fruits", "other"}
+    beans = {
+        (p.market, p.price_type): (p.previous_price, p.price) for p in early if p.item == "Beans"
+    }
+    assert beans == {
+        ("Pettah", "wholesale"): (Decimal("128.00"), Decimal("140.00")),
+        ("Pettah", "retail"): (Decimal("148.00"), Decimal("160.00")),
+        ("Dambulla", "wholesale"): (Decimal("149.00"), Decimal("130.00")),
+        ("Dambulla", "retail"): (Decimal("197.00"), Decimal("165.00")),
+    }
+    assert len(early) == 108
+
+
+def test_early_layout_markets_above_wholesale_and_retail(early):
+    # "Peliyagoda Fish Market" sits over its Wholesale and Retail columns.
+    markets = {(p.market, p.price_type) for p in early if p.section == "fish"}
+    assert markets == {
+        ("Peliyagoda", "wholesale"),
+        ("Peliyagoda", "retail"),
+        ("Negombo", "wholesale"),
+        ("Negombo", "retail"),
+    }
+    paraw = find(early, "Paraw", "Peliyagoda", "wholesale")
+    assert (paraw.previous_price, paraw.price) == (Decimal("560.00"), None)  # "n.a."
+
+
+def test_early_layout_needs_the_listing_date():
+    with pytest.raises(ParseError, match="listing date"):
+        parse_pdf((FIXTURES / "price_report_20160801e.pdf").read_bytes())
+
+
+def _label_row(text: str) -> list[list[_Word]]:
+    return [[_Word(text, 300, 320, 100)]]
+
+
+@pytest.mark.parametrize(
+    ("label", "listed", "expected"),
+    [
+        ("1-Aug", date(2016, 8, 1), date(2016, 8, 1)),
+        ("30-Dec", date(2017, 1, 2), date(2016, 12, 30)),  # listed after New Year
+        ("2-Jan", date(2016, 12, 30), date(2017, 1, 2)),
+    ],
+)
+def test_early_layout_year_is_the_one_nearest_the_listing(label, listed, expected):
+    assert _early_date([_label_row(label)], listed) == (label, expected)
+
+
+def test_early_layout_day_far_from_the_listing_is_an_error():
+    with pytest.raises(ParseError, match="over a month"):
+        _early_date([_label_row("1-Mar")], date(2016, 8, 1))
+
+
+def test_early_layout_skips_a_page_left_from_an_earlier_day():
+    # 29 August 2016's fruit table is still headed "26-Aug" (the Friday before).
+    _, prices = parse_pdf(
+        (FIXTURES / "price_report_20160829e.pdf").read_bytes(), listed=date(2016, 8, 29)
+    )
+    assert {p.report_date for p in prices} == {date(2016, 8, 29)}
+    assert {p.section for p in prices} == {"vegetables", "rice", "fish", "other"}
+

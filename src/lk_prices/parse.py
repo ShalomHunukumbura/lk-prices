@@ -11,6 +11,9 @@ page, and each number is matched to the column header above it.
 
 Layouts:
 
+- "early" (August 2016 to May 2017): every page is a table, with no chart summary
+  first. The title has no date and the year is printed nowhere: the Today column is
+  headed with the day ("1-Aug"), so the year comes from the listing.
 - "summary" (from late July 2020): two pages, a chart summary, then one table of
   wholesale and retail prices for 5 markets, "Yesterday" (or "Last Friday" after a
   weekend or holiday) and "Today". Rice and fish have a sub-header naming their
@@ -250,15 +253,29 @@ def _header_columns(rows: list[list[_Word]]) -> tuple[list[_Column], int, float]
     # aren't label words. That skips "Previous" rows and an "Item Unit" row.
     m = i - 1
     # Words left of the label edge don't count, so "Item Unit Previous 5" is skipped
-    # and so is a row with nothing over the columns.
-    while m >= 0 and all(_is_label_word(w.text) for w in rows[m] if w.x1 > label_edge):
+    # and so is a row with nothing over the columns. Before June 2017 the markets sit
+    # above the Wholesale/Retail row, so that row is skipped too.
+    while m >= 0 and all(
+        _is_label_word(w.text) or w.text in ("Wholesale", "Retail")
+        for w in rows[m]
+        if w.x1 > label_edge
+    ):
         m -= 1
     markets = rows[m] if m >= 0 else []
     if types is None or not markets:
         raise ParseError("no Wholesale/Retail or market header above the table")
     type_x = [(w.mid, w.text.lower()) for w in types if w.text in ("Wholesale", "Retail")]
     # Some reports put "Item" and "Unit" on the market row; they sit left of the prices.
-    market_x = [(w.mid, _market(w.text)) for w in markets if w.x0 > label_edge]
+    market_x = []
+    for group in _label_groups([w for w in markets if w.x0 > label_edge]):
+        name = " ".join(w.text for w in group)
+        if name.endswith(" Fish Market"):
+            # One name over its columns ("Peliyagoda Fish Market", before June 2017).
+            market_x.append((_span_mid(group), _market(name)))
+        else:
+            # Otherwise each word is a market: neighbours can be a footnote mark
+            # ("Pettah (a)") or a stray label, not part of the name.
+            market_x.extend((w.mid, _market(w.text)) for w in group)
 
     columns = []
     for slot, today in pairs:
@@ -464,7 +481,8 @@ _MARKET_SPELLINGS = {"Maradagahamula": "Marandagahamula"}
 
 def _market(text: str) -> str:
     # "Pettah*" carries a footnote mark (e.g. "partly closed for the New Year").
-    text = text.rstrip("*")
+    # "Negombo Fish Market" is plain "Negombo" in later reports.
+    text = text.rstrip("*").removesuffix(" Fish Market")
     return _MARKET_SPELLINGS.get(text, text)
 
 
@@ -492,6 +510,9 @@ def page_texts(body: bytes) -> list[str]:
 
 def detect_layout(texts: list[str]) -> str:
     pages = len(texts)
+    if pages >= 3 and TABLE_TITLE in texts[0]:
+        # One table per page from the first page on (before June 2017).
+        return "early"
     if pages == 2 and TABLE_TITLE in texts[-1] and "Today" in texts[-1]:
         return "summary"
     if pages >= 3 and TABLE_TITLE in texts[1]:
@@ -510,10 +531,61 @@ def detect_layout(texts: list[str]) -> str:
     raise ParseError(f"unknown layout ({pages} pages)")
 
 
-def parse_pdf(body: bytes) -> tuple[str, list[Price]]:
-    """Return the layout name and every price in a report."""
+def _early_date(pages: list[list[list[_Word]]], listed: date) -> tuple[str, date]:
+    """The report's day as headed over its Today columns ("1-Aug"), and its date.
+
+    The label most words agree on is the report's day; the charts under each table
+    end with the same label. The year is the one that puts the day nearest the
+    listing date, so a report listed on 2 January can still be from 30 December.
+    """
+    labels = Counter(
+        w.text for rows in pages for row in rows for w in row if _STALE_DAY.fullmatch(w.text)
+    )
+    if not labels:
+        raise ParseError("no day label over the Today columns")
+    label = labels.most_common(1)[0][0]
+    day, month = label.split("-")
+    month_number = datetime.strptime(month, "%b").month
+    candidates = []
+    for year in (listed.year - 1, listed.year, listed.year + 1):
+        try:
+            candidates.append(date(year, month_number, int(day)))
+        except ValueError:  # 29-Feb outside a leap year
+            continue
+    found = min(candidates, key=lambda d: abs(d - listed))
+    if abs(found - listed).days > 31:
+        raise ParseError(f"day label {label} is over a month from the listing date {listed}")
+    return label, found
+
+
+def _label_as_today(rows: list[list[_Word]], label: str) -> list[list[_Word]]:
+    """Read the report's day label ("1-Aug") as "Today". A market whose column
+    carries an earlier day keeps its label, so it's set aside as stale."""
+    return [[replace(w, text="Today") if w.text == label else w for w in row] for row in rows]
+
+
+def parse_pdf(body: bytes, listed: date | None = None) -> tuple[str, list[Price]]:
+    """Return the layout name and every price in a report.
+
+    `listed` is the date the listing gives the report. Only the early layout needs
+    it, because its PDFs don't print the year.
+    """
     layout = detect_layout(page_texts(body))
     with pdfplumber.open(io.BytesIO(body)) as pdf:
+        if layout == "early":
+            if listed is None:
+                raise ParseError("an early-layout report needs its listing date for the year")
+            pages = [
+                _rows(page.extract_words())
+                for page in pdf.pages
+                if TABLE_TITLE in (page.extract_text() or "")
+            ]
+            label, day = _early_date(pages, listed)
+            # A page headed only with an earlier day ("26-Aug" in 29 August 2016's
+            # fruit table) wasn't updated that day. Like a stale market, it's left out.
+            fresh = [rows for rows in pages if any(w.text == label for row in rows for w in row)]
+            prices = [p for rows in fresh for p in _parse_rows(_label_as_today(rows, label), day)]
+            return layout, prices
         if layout == "summary":
             return layout, parse_table_page(pdf.pages[-1].extract_words())
         if layout == "sectioned":

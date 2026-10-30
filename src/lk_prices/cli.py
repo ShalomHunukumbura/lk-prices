@@ -68,7 +68,7 @@ def fetch(root: Path, limit: int | None = None, client: cbsl.Client | None = Non
 
 def _parse_file(path: Path, listed_date: date, root: Path) -> pl.DataFrame:
     """Parse and check one PDF. Raises ParseError with the reason if it can't be used."""
-    layout, prices = parse_pdf(path.read_bytes())
+    layout, prices = parse_pdf(path.read_bytes(), listed_date)
     rows = silver.rows_from(prices, layout, path.name, listed_date)
     found = problems(rows)
     if found:
