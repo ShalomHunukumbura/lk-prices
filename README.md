@@ -9,8 +9,11 @@ about 2,450 PDFs. This pipeline turns them into [Delta Lake](https://delta.io/) 
 monthly food price index.
 
 Every report from August 2016 to today is loaded, across all three layouts CBSL has used, and
-a local timer adds each new one. The page shows the index, item prices, market margins and
-the latest moves: **[shalomhunukumbura.github.io/lk-prices](https://shalomhunukumbura.github.io/lk-prices/)**.
+a local timer adds each new one. **[shalomhunukumbura.github.io/lk-prices](https://shalomhunukumbura.github.io/lk-prices/)**
+is for anyone: price your own shopping basket in any year since 2016, slide back through ten
+years item by item, and see the day's biggest moves. The
+[full data page](https://shalomhunukumbura.github.io/lk-prices/stats.html) has the index for
+every basket, retail against wholesale for any item and market, and tables of every number.
 
 Food prices at retail roughly tripled in ten years: the index stands at 322 (August 2016 =
 100). From October 2021 to October 2022 it rose 88%, between the official food inflation
@@ -97,8 +100,10 @@ maintain   compact, checkpoint, vacuum (weekly)
   At this size every read is fast either way; what grows without maintenance is the file
   count, and with it every read. The rejects table had a worse problem: one commit per
   report, so 4 rows took 1,728 commits and 1,179 files. It now writes once per batch.
-- **The page** publishes derived figures only (the index, monthly medians, margins and the
-  latest moves), credited to CBSL with links to its PDFs. CBSL's site says "All Rights
+- **The pages** are plain HTML, CSS and JavaScript with hand-drawn SVG charts, Geist and
+  Phosphor icons vendored under `site/assets/` (licences included): no build step, so GitHub
+  Pages serves `site/` as it is. They publish derived figures only (the index, monthly
+  medians, margins and the latest moves), credited to CBSL with links to its PDFs. CBSL's site says "All Rights
   Reserved" and offers no reuse licence, so the daily price tables aren't republished.
   USD prices use monthly rates from [lkr-rates](https://github.com/ShalomHunukumbura/lkr-rates).
 
