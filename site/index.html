@@ -3,397 +3,216 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sri Lanka food prices since 2016</title>
-<meta name="description" content="A monthly food price index for Sri Lanka since August 2016, built from the Central Bank's Daily Price Reports, with item prices, market margins and the latest moves.">
-<style>
-  :root {
-    color-scheme: light;
-    --page: #f9f9f7; --surface: #fcfcfb;
-    --text: #0b0b0b; --text-2: #52514e; --muted: #898781;
-    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
-    --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-      --page: #0d0d0d; --surface: #1a1a19;
-      --text: #f0efec; --text-2: #c3c2b7; --muted: #898781;
-      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-      --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-    }
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--page); color: var(--text);
-         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
-  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; }
-  h2 { font-size: 18px; margin: 0 0 4px; }
-  p { margin: 0 0 12px; }
-  .lede { color: var(--text-2); margin-bottom: 24px; }
-  a { color: inherit; }
-  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; }
-  select, button {
-    font: inherit; color: var(--text); background: var(--surface);
-    border: 1px solid var(--axis); border-radius: 6px; padding: 6px 10px; }
-  .toggle { display: flex; gap: 4px; }
-  .toggle button { cursor: pointer; }
-  .toggle button[aria-pressed=true] { background: var(--text); color: var(--surface); border-color: var(--text); }
-  :focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-          padding: 20px; margin-bottom: 20px; }
-  .hero-label { color: var(--text-2); }
-  .hero-value { font-size: 52px; font-weight: 600; line-height: 1.1; margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
-  .hero-sub { color: var(--text-2); }
-  .legend { display: flex; flex-wrap: wrap; gap: 16px; color: var(--text-2); font-size: 14px; margin: 8px 0; }
-  .key { display: inline-block; width: 16px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
-  .chart { position: relative; }
-  svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .tick { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .end-label { fill: var(--text-2); font-size: 12px; }
-  .tooltip { position: absolute; top: 0; pointer-events: none; background: var(--surface);
-             border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px;
-             box-shadow: 0 4px 16px rgba(0,0,0,0.12); white-space: nowrap; }
-  .tooltip .when { color: var(--text-2); margin-bottom: 4px; }
-  .tooltip .row { display: flex; align-items: center; gap: 6px; }
-  .tooltip .row strong { font-variant-numeric: tabular-nums; }
-  .tooltip .row span.name { color: var(--text-2); }
-  details { margin-top: 12px; }
-  summary { cursor: pointer; color: var(--text-2); font-size: 14px; }
-  .table-wrap { max-height: 320px; overflow: auto; margin-top: 8px; }
-  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
-  th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--grid); }
-  th:first-child, td:first-child { text-align: left; }
-  th { position: sticky; top: 0; background: var(--surface); color: var(--text-2); font-weight: 600; }
-  .small { color: var(--text-2); font-size: 14px; }
-  .movers { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  @media (max-width: 600px) { .movers { grid-template-columns: 1fr; } }
-  .movers h3 { font-size: 15px; margin: 0 0 6px; color: var(--text-2); font-weight: 600; }
-  .movers table td:nth-child(2) { color: var(--text-2); text-align: left; }
-  .movers table td:nth-child(n+3) { white-space: nowrap; }
-  ul { margin: 0 0 12px; padding-left: 20px; }
-</style>
+<title>What food costs in Sri Lanka, then and now</title>
+<meta name="description" content="Ten years of Central Bank market prices for rice, coconut, dhal, vegetables and fish in Sri Lanka. Build a shopping basket and see what it cost in any year since 2016.">
+<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e0e0d" media="(prefers-color-scheme: dark)">
+<link rel="preload" href="assets/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
-<main>
-  <h1>Sri Lanka food prices since 2016</h1>
-  <p class="lede">A monthly food price index built from every Daily Price Report the Central Bank of Sri Lanka has published since August 2016: about 40 staples in the main markets, wholesale and retail.</p>
 
-  <section class="card" aria-live="polite">
-    <div class="hero-label" id="hero-label">&nbsp;</div>
-    <div class="hero-value" id="hero-value">&nbsp;</div>
-    <div class="hero-sub" id="hero-sub">&nbsp;</div>
-  </section>
+<header class="wrap nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">
+      <span class="mark"><span class="ico" style="-webkit-mask-image:url(assets/icons/basket.svg);mask-image:url(assets/icons/basket.svg);"></span></span>
+      Lanka food prices
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#basket">Your basket</a>
+      <a href="#time">Then and now</a>
+      <a href="#today">Today</a>
+      <a href="#margins">Markups</a>
+      <a class="keep" href="stats.html">Full data</a>
+    </nav>
+  </div>
+</header>
 
-  <section class="card">
-    <h2 id="index-title">Food price index</h2>
-    <p class="small">August 2016 = 100. Each month is compared with the one before on the prices reported in both, with every item counted equally.</p>
-    <div class="filters">
-      <label>Basket <select id="basket"></select></label>
-    </div>
-    <p class="small" id="basket-note" hidden>CBSL didn't publish fish or fruit prices from early 2019 to July 2020, so this basket has a gap.</p>
-    <div id="index-chart"></div>
-  </section>
+<main id="top">
+  <p class="error wrap" role="alert">The price data didn't load. Check your connection and refresh the page.</p>
 
-  <section class="card">
-    <h2 id="item-title">Item prices</h2>
-    <p class="small">Monthly median of the prices in the reports, per kg unless the item says otherwise.</p>
-    <div class="filters">
-      <label>Item <select id="item"></select></label>
-      <label>Market <select id="market"></select></label>
-      <div class="toggle" role="group" aria-label="Currency" id="currency" hidden>
-        <button data-currency="LKR" aria-pressed="true">LKR</button>
-        <button data-currency="USD" aria-pressed="false">USD</button>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <h1>Food costs <span class="x" id="hero-x">3.2×</span> what it did in 2016.</h1>
+        <p class="lead">Ten years of Central Bank market prices, made easy to explore. Find out what your shopping cost then.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#basket">Price my basket <span class="ico" style="-webkit-mask-image:url(assets/icons/arrow-right.svg);mask-image:url(assets/icons/arrow-right.svg);"></span></a>
+          <a class="btn btn-ghost" href="#today">Today's moves</a>
+        </div>
+      </div>
+      <div class="card hero-chart">
+        <div class="chart-head">
+          <div>
+            <strong>Food price index</strong>
+            <div class="legend" style="margin-top:6px"><span><i style="background:var(--accent)"></i>Retail, August 2016 = 100</span></div>
+          </div>
+          <div class="readout" aria-live="polite">
+            <div class="big num" id="hero-read">&nbsp;</div>
+            <div class="sub" id="hero-read-sub">Hover the chart</div>
+          </div>
+        </div>
+        <div class="chart" id="hero-chart"><div class="skel" style="height:300px"></div></div>
       </div>
     </div>
-    <div id="item-chart"></div>
   </section>
 
-  <section class="card">
-    <h2 id="movers-title">Latest moves</h2>
-    <p class="small" id="movers-sub"></p>
-    <div class="movers">
-      <div><h3>Up most</h3><table id="up"></table></div>
-      <div><h3>Down most</h3><table id="down"></table></div>
+  <section id="story" style="padding-top:24px">
+    <div class="wrap">
+      <h2 class="reveal">Ten years, four numbers.</h2>
+      <div class="bento">
+        <article class="card tile t1 reveal">
+          <div class="kicker"><span class="ico" style="-webkit-mask-image:url(assets/icons/chart-line-up.svg);mask-image:url(assets/icons/chart-line-up.svg);"></span>The 2022 crisis</div>
+          <div>
+            <div class="stat num" id="crisis-stat">&nbsp;</div>
+            <p id="crisis-text">&nbsp;</p>
+          </div>
+          <div class="chart" id="crisis-chart"></div>
+        </article>
+        <article class="card tile t2 reveal">
+          <div class="kicker"><span class="ico" style="-webkit-mask-image:url(assets/icons/drop.svg);mask-image:url(assets/icons/drop.svg);"></span>One coconut</div>
+          <div class="vs">
+            <div class="col"><span class="label" id="coco-then-y">2016</span><span class="val num" id="coco-then">&nbsp;</span></div>
+            <span class="arrow"><span class="ico" style="-webkit-mask-image:url(assets/icons/arrow-right.svg);mask-image:url(assets/icons/arrow-right.svg);"></span></span>
+            <div class="col"><span class="label">Now</span><span class="val num" id="coco-now">&nbsp;</span></div>
+          </div>
+          <p id="coco-text">&nbsp;</p>
+        </article>
+        <article class="card tile t3 reveal">
+          <div class="kicker"><span class="ico" style="-webkit-mask-image:url(assets/icons/grains.svg);mask-image:url(assets/icons/grains.svg);"></span>Rs 1,000 of samba rice</div>
+          <div class="grain-row"><span id="rice-then-l">&nbsp;</span><div class="grains" id="rice-then"></div></div>
+          <div class="grain-row"><span id="rice-now-l">&nbsp;</span><div class="grains" id="rice-now"></div></div>
+        </article>
+        <article class="card tile t4 reveal">
+          <div class="kicker"><span class="ico" style="-webkit-mask-image:url(assets/icons/storefront.svg);mask-image:url(assets/icons/storefront.svg);"></span>The shop's share</div>
+          <div class="split">
+            <div>
+              <div class="stat num" id="markup-stat">&nbsp;</div>
+              <p id="markup-text">&nbsp;</p>
+            </div>
+            <div class="bars" id="markup-bars"></div>
+          </div>
+        </article>
+      </div>
     </div>
   </section>
 
-  <section class="card">
-    <h2>Retail markup over wholesale</h2>
-    <p class="small">Median retail price over the wholesale price for the same item, in the same market, on the same day. Narahenpita reports retail prices only.</p>
-    <div id="margin-chart"></div>
+  <section id="basket">
+    <div class="wrap">
+      <h2 class="reveal">What did your shopping cost?</h2>
+      <p class="lead reveal">Pick what you buy and how much. We'll price it with market prices from any year since 2016.</p>
+      <div class="basket">
+        <div class="card picker reveal">
+          <label class="field" for="search">Find an item
+            <input type="search" id="search" placeholder="Rice, coconut, beans..." autocomplete="off">
+          </label>
+          <div class="groups" id="groups"><div class="skel" style="height:200px"></div></div>
+        </div>
+        <div class="card receipt reveal" aria-live="polite">
+          <div class="receipt-head">
+            <strong>Your basket</strong>
+            <label class="field" style="grid-auto-flow:column;align-items:center">Compare with
+              <select id="basket-year"></select>
+            </label>
+          </div>
+          <div id="lines"></div>
+          <div class="totals">
+            <div class="total"><div class="label" id="total-then-l">Then</div><div class="val num" id="total-then">Rs 0</div></div>
+            <div class="total now"><div class="label">Now</div><div class="val num" id="total-now">Rs 0</div></div>
+          </div>
+          <p class="verdict" id="verdict"></p>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <section class="card">
-    <h2>About these numbers</h2>
-    <ul class="small">
-      <li>Source: the <a href="https://www.cbsl.gov.lk/en/statistics/economic-indicators/price-report">Daily Price Report</a> of the Central Bank of Sri Lanka. The prices are CBSL's; the index, medians and margins are computed here. This project is not affiliated with CBSL.</li>
-      <li>About ten years of PDFs in three layouts are read by position and checked: each report's "yesterday" column is compared with the previous report, and 99.7% agree. A handful of typing slips (a price that jumps tenfold and comes straight back) are left out.</li>
-      <li>From 2021 to 2025 the index is within 10% of a direct comparison of average prices for every basket. Wholesale fruit before 2020 rests on three items in one market, so read it loosely.</li>
-      <li>USD prices use the Central Bank's average indicative rate for the month.</li>
-      <li id="built"></li>
-    </ul>
-    <p class="small">Code and method: <a href="https://github.com/ShalomHunukumbura/lk-prices">github.com/ShalomHunukumbura/lk-prices</a></p>
+  <section id="time">
+    <div class="wrap">
+      <h2 class="reveal">Then and now, item by item.</h2>
+      <p class="lead reveal">Slide back to any year. Cards are sorted by how much each price has grown since.</p>
+      <div class="tm-controls reveal">
+        <div class="year-big num" id="tm-year">2016</div>
+        <input type="range" id="tm-range" min="2016" max="2025" step="1" value="2016" aria-label="Year to compare with">
+        <div class="seg" role="group" aria-label="Kind of food" id="tm-filter">
+          <button data-f="all" aria-pressed="true">All</button>
+          <button data-f="vegetables">Veg</button>
+          <button data-f="rice">Rice</button>
+          <button data-f="fish">Fish</button>
+          <button data-f="other">Staples</button>
+        </div>
+      </div>
+      <div class="tm-grid" id="tm-grid"></div>
+      <div class="more"><button class="btn btn-ghost" id="tm-more" hidden>Show every item</button></div>
+    </div>
+  </section>
+
+  <section id="today">
+    <div class="wrap">
+      <h2 class="reveal" id="today-title">The market today.</h2>
+      <p class="lead reveal" id="today-sub">&nbsp;</p>
+    </div>
+    <div class="ticker reveal" aria-hidden="true"><div class="ticker-track" id="ticker"></div></div>
+    <div class="wrap">
+      <div class="moves">
+        <div class="card reveal"><h3><span class="ico" style="-webkit-mask-image:url(assets/icons/trend-up.svg);mask-image:url(assets/icons/trend-up.svg);color:var(--up)"></span>Went up most</h3><div id="moves-up"></div></div>
+        <div class="card reveal"><h3><span class="ico" style="-webkit-mask-image:url(assets/icons/trend-down.svg);mask-image:url(assets/icons/trend-down.svg);color:var(--down)"></span>Went down most</h3><div id="moves-down"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="margins">
+    <div class="wrap margin-wrap">
+      <div class="reveal">
+        <div class="margin-big num" id="margin-big">&nbsp;</div>
+        <h2 style="margin-top:14px">is what Pettah's shops add on top of the wholesale price.</h2>
+        <p class="lead" id="margin-text">In the 2022 crisis that share shrank: retail prices rose less than wholesale ones.</p>
+      </div>
+      <div class="card margin-chart reveal">
+        <div class="chart" id="margin-chart"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="spotlight">
+    <div class="wrap">
+      <h2 class="reveal">Look up any item.</h2>
+      <div class="card spot reveal">
+        <div class="spot-controls">
+          <div class="left">
+            <label class="field">Item <select id="spot-item"></select></label>
+            <label class="field">Market <select id="spot-market"></select></label>
+          </div>
+          <div class="left">
+            <div class="seg" role="group" aria-label="Time range" id="spot-range">
+              <button data-r="12">1Y</button><button data-r="60">5Y</button><button data-r="all" aria-pressed="true">All</button>
+            </div>
+            <div class="seg" role="group" aria-label="Currency" id="spot-cur" hidden>
+              <button data-c="LKR" aria-pressed="true">Rs</button><button data-c="USD">US$</button>
+            </div>
+          </div>
+        </div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Retail</span><span><i style="background:var(--wholesale)"></i>Wholesale</span></div>
+        <div class="chart" id="spot-chart" style="margin-top:10px"></div>
+      </div>
+    </div>
   </section>
 </main>
 
-<script>
-const NS = "http://www.w3.org/2000/svg";
-const $ = (id) => document.getElementById(id);
-const BASKETS = { all: "All food", vegetables: "Vegetables", rice: "Rice", fish: "Fish", fruits: "Fruit", other: "Other staples" };
-const TYPE_COLOR = { retail: "var(--series-1)", wholesale: "var(--series-2)" };
-const MARKET_COLOR = { Pettah: "var(--series-1)", Dambulla: "var(--series-2)", Negombo: "var(--series-3)", Peliyagoda: "var(--series-4)" };
-const UNITS = { "Coconut (Avg.)": "nut", "Egg (White)": "egg", "Apple (Imp)": "fruit", "Orange (Imp)": "fruit", "Coconut oil": "litre" };
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+<footer>
+  <div class="wrap foot">
+    <div>
+      <p>Prices come from the <a href="https://www.cbsl.gov.lk/en/statistics/economic-indicators/price-report">Daily Price Report</a> of the Central Bank of Sri Lanka. The index, monthly medians and markups are worked out here from those reports. This site is not affiliated with the Central Bank.</p>
+      <p>Item prices are monthly medians at Pettah where it reports them (Negombo for fish). The index counts every item equally and compares each month with the one before. US dollar prices use the Central Bank's average rate for the month.</p>
+      <p class="muted" id="built">&nbsp;</p>
+    </div>
+    <div class="foot-links">
+      <a href="stats.html"><span class="ico" style="-webkit-mask-image:url(assets/icons/chart-line-up.svg);mask-image:url(assets/icons/chart-line-up.svg);"></span>Full data and tables</a>
+      <a href="https://github.com/ShalomHunukumbura/lk-prices"><span class="ico" style="-webkit-mask-image:url(assets/icons/github-logo.svg);mask-image:url(assets/icons/github-logo.svg);"></span>Code and method</a>
+      <a href="https://www.cbsl.gov.lk/en/statistics/economic-indicators/price-report"><span class="ico" style="-webkit-mask-image:url(assets/icons/arrow-up-right.svg);mask-image:url(assets/icons/arrow-up-right.svg);"></span>The Central Bank's reports</a>
+    </div>
+  </div>
+</footer>
 
-const el = (tag, attrs = {}, text) => {
-  const node = document.createElementNS(NS, tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
-const html = (tag, attrs = {}, text) => {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
-const monthName = (ym) => `${MONTHS[Number(ym.slice(5)) - 1]} ${ym.slice(0, 4)}`;
-const longDate = (iso) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-GB",
-  { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-
-function niceTicks(min, max, count = 5) {
-  const span = max - min || Math.abs(max) || 1;
-  const raw = span / count, power = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw);
-  const ticks = [];
-  for (let t = Math.floor(min / step) * step; t <= max + step * 1e-9; t += step) ticks.push(+t.toPrecision(12));
-  return ticks;
-}
-
-// A line chart over evenly spaced labels (months or years), with a crosshair,
-// tooltip, keyboard stepping, a legend, labels at the line ends and a table view.
-function lineChart(root, { labels, series, format, labelFormat, title }) {
-  root.replaceChildren();
-  const legend = html("div", { class: "legend" });
-  const box = html("div", { class: "chart" });
-  const svg = el("svg", { role: "img", tabindex: "0", "aria-label": title });
-  const tip = html("div", { class: "tooltip", hidden: "" });
-  const details = html("details");
-  details.append(html("summary", {}, "Show these numbers as a table"));
-  const wrap = html("div", { class: "table-wrap" }), table = html("table");
-  wrap.append(table); details.append(wrap);
-  box.append(svg, tip);
-  root.append(legend, box, details);
-
-  const shown = series.filter((s) => s.values.some((v) => v != null));
-  if (shown.length > 1) for (const s of shown) {
-    const item = html("span"), key = html("span", { class: "key" });
-    key.style.background = s.color;
-    item.append(key, document.createTextNode(s.name));
-    legend.append(item);
-  }
-  // Table: newest first.
-  const head = html("tr");
-  for (const t of [title.includes("year") ? "Year" : "Month", ...shown.map((s) => s.name)]) head.append(html("th", {}, t));
-  const rows = [head];
-  for (let i = labels.length - 1; i >= 0; i--) {
-    if (shown.every((s) => s.values[i] == null)) continue;
-    const tr = html("tr");
-    for (const t of [labelFormat(labels[i]), ...shown.map((s) => s.values[i] == null ? "" : format(s.values[i]))])
-      tr.append(html("td", {}, t));
-    rows.push(tr);
-  }
-  table.replaceChildren(...rows);
-
-  const W = Math.max(300, Math.round(box.clientWidth || root.clientWidth));
-  const H = W < 560 ? 240 : 320;
-  const M = { top: 12, right: W < 560 ? 70 : 96, bottom: 28, left: 56 };
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  let min = Infinity, max = -Infinity;
-  for (const s of shown) for (const v of s.values) if (v != null) { min = Math.min(min, v); max = Math.max(max, v); }
-  if (!isFinite(min)) { svg.append(el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "tick" }, "No prices for this choice")); return; }
-  const floor = min >= 0 && min < max * 0.4 ? 0 : min;
-  const ticks = niceTicks(floor, max);
-  const y0 = Math.min(ticks[0], floor), y1 = Math.max(ticks.at(-1), max);
-  const x = (i) => M.left + (labels.length === 1 ? 0.5 : i / (labels.length - 1)) * (W - M.left - M.right);
-  const y = (v) => H - M.bottom - ((v - y0) / (y1 - y0 || 1)) * (H - M.top - M.bottom);
-
-  for (const t of ticks) {
-    svg.append(el("line", { x1: M.left, x2: W - M.right, y1: y(t), y2: y(t), stroke: "var(--grid)", "stroke-width": 1 }));
-    svg.append(el("text", { x: M.left - 8, y: y(t) + 4, "text-anchor": "end", class: "tick" }, format(t)));
-  }
-  svg.append(el("line", { x1: M.left, x2: W - M.right, y1: H - M.bottom, y2: H - M.bottom, stroke: "var(--axis)", "stroke-width": 1 }));
-  // Year ticks: every label for yearly data, January for monthly data.
-  const yearly = labels[0].length === 4;
-  const marks = labels.map((l, i) => [l, i]).filter(([l]) => yearly || l.endsWith("-01"));
-  const every = Math.ceil(marks.length / (W < 560 ? 4 : 10));
-  marks.filter((_, k) => k % every === 0).forEach(([l, i]) =>
-    svg.append(el("text", { x: x(i), y: H - 8, "text-anchor": "middle", class: "tick" }, l.slice(0, 4))));
-
-  const ends = [];
-  for (const s of shown) {
-    let d = "", pen = false, last = null;
-    s.values.forEach((v, i) => {
-      if (v == null) { pen = false; return; }
-      d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
-      pen = true; last = i;
-    });
-    svg.append(el("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-    if (last != null) ends.push({ s, i: last, yy: y(s.values[last]) });
-  }
-  // Direct labels at the line ends, nudged apart so they don't collide. A line that
-  // stops early (Peliyagoda after 2020) is named by the legend and tooltip instead.
-  ends.splice(0, ends.length, ...ends.filter((e) => e.i === labels.length - 1));
-  ends.sort((a, b) => a.yy - b.yy);
-  for (let k = 1; k < ends.length; k++) if (ends[k].yy - ends[k - 1].yy < 14) ends[k].yy = ends[k - 1].yy + 14;
-  if (shown.length <= 4) for (const e of ends)
-    svg.append(el("text", { x: x(e.i) + 8, y: e.yy + 4, class: "end-label" }, e.s.name));
-
-  const layer = el("g");
-  svg.append(layer);
-  let current = null;
-  const show = (i) => {
-    current = i; layer.replaceChildren();
-    if (i == null) { tip.hidden = true; return; }
-    layer.append(el("line", { x1: x(i), x2: x(i), y1: M.top, y2: H - M.bottom, stroke: "var(--axis)", "stroke-width": 1 }));
-    tip.replaceChildren(html("div", { class: "when" }, labelFormat(labels[i])));
-    for (const s of shown) {
-      const v = s.values[i];
-      if (v == null) continue;
-      layer.append(el("circle", { cx: x(i), cy: y(v), r: 4, fill: s.color, stroke: "var(--surface)", "stroke-width": 2 }));
-      const row = html("div", { class: "row" }), key = html("span", { class: "key" });
-      key.style.background = s.color; key.style.marginRight = "0";
-      row.append(key, html("strong", {}, format(v)), html("span", { class: "name" }, s.name));
-      tip.append(row);
-    }
-    tip.hidden = false;
-    const r = box.getBoundingClientRect(), px = (x(i) / W) * r.width;
-    const left = px + 14 + tip.offsetWidth > r.width ? px - 14 - tip.offsetWidth : px + 14;
-    tip.style.left = `${Math.max(0, left)}px`;
-  };
-  const nearest = (clientX) => {
-    const r = svg.getBoundingClientRect(), px = ((clientX - r.left) / r.width) * W;
-    const i = Math.round(((px - M.left) / (W - M.left - M.right)) * (labels.length - 1));
-    return Math.min(labels.length - 1, Math.max(0, i));
-  };
-  svg.addEventListener("pointermove", (e) => show(nearest(e.clientX)));
-  svg.addEventListener("pointerleave", () => show(null));
-  svg.addEventListener("focus", () => show(labels.length - 1));
-  svg.addEventListener("blur", () => show(null));
-  svg.addEventListener("keydown", (e) => {
-    const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
-    if (!step) return;
-    e.preventDefault();
-    show(Math.min(labels.length - 1, Math.max(0, (current ?? labels.length - 1) + step)));
-  });
-}
-
-const state = { currency: "LKR" };
-const D = {};
-
-function drawHero() {
-  const { months, series } = D.index;
-  const retail = series.all.retail, wholesale = series.all.wholesale;
-  const i = retail.length - 1, year = i - 12;
-  const latest = D.meta.latest_report;
-  $("hero-label").textContent = `Retail food prices, ${monthName(months[i])} (reports to ${longDate(latest)})`;
-  $("hero-value").textContent = `${(retail[i] / 100).toFixed(1)}× August 2016`;
-  const change = (a, b) => `${a >= b ? "+" : ""}${((a / b - 1) * 100).toFixed(0)}%`;
-  $("hero-sub").textContent = `${change(retail[i], retail[year])} on ${monthName(months[year])}. `
-    + `Wholesale prices are ${(wholesale[i] / 100).toFixed(1)}× their August 2016 level.`;
-}
-
-function drawIndex() {
-  const basket = $("basket").value, s = D.index.series[basket];
-  $("basket-note").hidden = !["fish", "fruits"].includes(basket);
-  $("index-title").textContent = `Food price index: ${BASKETS[basket].toLowerCase()}`;
-  lineChart($("index-chart"), {
-    labels: D.index.months, title: `Food price index, ${BASKETS[basket]}, by month`,
-    series: [
-      { name: "Retail", color: TYPE_COLOR.retail, values: s.retail },
-      { name: "Wholesale", color: TYPE_COLOR.wholesale, values: s.wholesale },
-    ],
-    format: (v) => v.toFixed(0), labelFormat: monthName,
-  });
-}
-
-function fillMarkets() {
-  const markets = Object.keys(D.items.items[$("item").value].markets).sort();
-  const select = $("market"), keep = select.value;
-  select.replaceChildren(...markets.map((m) => html("option", { value: m }, m)));
-  select.value = markets.includes(keep) ? keep : markets.includes("Pettah") ? "Pettah" : markets[0];
-}
-
-function drawItem() {
-  const item = $("item").value, market = $("market").value;
-  const prices = D.items.items[item].markets[market];
-  const usd = state.currency === "USD" && D.usd;
-  const convert = (values) => !values ? [] : values.map((v, i) =>
-    v == null ? null : usd ? (D.usd.lkr_per_usd[i] ? v / D.usd.lkr_per_usd[i] : null) : v);
-  const unit = UNITS[item] || "kg";
-  $("item-title").textContent = `${item} at ${market}, per ${unit}`;
-  lineChart($("item-chart"), {
-    labels: D.items.months, title: `${item} at ${market}, monthly median price per ${unit}`,
-    series: [
-      { name: "Retail", color: TYPE_COLOR.retail, values: convert(prices.retail) },
-      { name: "Wholesale", color: TYPE_COLOR.wholesale, values: convert(prices.wholesale) },
-    ],
-    format: usd ? (v) => `$${v.toFixed(2)}` : (v) => `Rs ${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-    labelFormat: monthName,
-  });
-  for (const b of document.querySelectorAll("#currency button"))
-    b.setAttribute("aria-pressed", String(b.dataset.currency === state.currency));
-}
-
-function drawMovers() {
-  const m = D.movers;
-  $("movers-title").textContent = `Latest moves: ${longDate(m.date)}`;
-  $("movers-sub").textContent = `Retail prices against the report before, on ${longDate(m.previous)}.`;
-  const fill = (id, rows) => $(id).replaceChildren(...rows.map((r) => {
-    const tr = html("tr");
-    tr.append(html("td", {}, r.item), html("td", {}, r.market),
-      html("td", {}, `Rs ${r.price.toLocaleString("en-US")}`),
-      html("td", {}, `${r.change > 0 ? "+" : ""}${r.change.toFixed(0)}%`));
-    return tr;
-  }));
-  fill("up", m.up); fill("down", m.down);
-}
-
-function drawMargins() {
-  const { years, markets } = D.margins;
-  lineChart($("margin-chart"), {
-    labels: years.map(String), title: "Retail markup over wholesale by market, by year",
-    series: Object.keys(MARKET_COLOR).filter((k) => markets[k])
-      .map((k) => ({ name: k, color: MARKET_COLOR[k], values: markets[k] })),
-    format: (v) => `${v.toFixed(0)}%`, labelFormat: (l) => l,
-  });
-}
-
-function renderAll() { drawIndex(); drawItem(); drawMargins(); }
-
-async function start() {
-  const get = (name) => fetch(`data/${name}.json`).then((r) => r.ok ? r.json() : null);
-  [D.index, D.items, D.margins, D.movers, D.meta, D.usd] =
-    await Promise.all(["index", "items", "margins", "movers", "meta", "usd"].map(get));
-  $("basket").replaceChildren(...Object.entries(BASKETS).map(([k, v]) => html("option", { value: k }, v)));
-  $("item").replaceChildren(...Object.keys(D.items.items).map((k) => html("option", { value: k }, k)));
-  $("item").value = "Coconut (Avg.)";
-  fillMarkets();
-  if (D.usd) $("currency").hidden = false;
-  $("basket").addEventListener("change", drawIndex);
-  $("item").addEventListener("change", () => { fillMarkets(); drawItem(); });
-  $("market").addEventListener("change", drawItem);
-  for (const b of document.querySelectorAll("#currency button"))
-    b.addEventListener("click", () => { state.currency = b.dataset.currency; drawItem(); });
-  $("built").textContent = `${D.meta.reports.toLocaleString("en-US")} reports from ${longDate(D.meta.first_report)} to ${longDate(D.meta.latest_report)}. Built ${D.meta.built.replace("T", " ")} UTC from silver version ${D.meta.silver_version}.`;
-  drawHero(); drawMovers(); renderAll();
-  let resizing, width = window.innerWidth;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizing);
-    resizing = setTimeout(() => { if (window.innerWidth !== width) { width = window.innerWidth; renderAll(); } }, 150);
-  });
-}
-start();
-</script>
+<script src="assets/app.js"></script>
 </body>
 </html>
