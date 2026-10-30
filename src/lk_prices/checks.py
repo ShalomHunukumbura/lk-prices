@@ -84,3 +84,27 @@ def implausible(rows: pl.DataFrame) -> pl.DataFrame:
         )
         .drop("wholesale_price")
     )
+
+
+def missing_items(prices: pl.DataFrame) -> pl.DataFrame:
+    """Items a report left out that the reports either side of it both carry.
+
+    Not a reason to reject the report: CBSL really does leave items out (a market
+    closed, nothing to price). It's for spotting a table or page the parser
+    skipped, which looks the same from inside one report.
+    """
+    days = prices.select(pl.col("report_date").unique().sort()).with_columns(
+        before=pl.col("report_date").shift(1), after=pl.col("report_date").shift(-1)
+    )
+    carried = prices.select("report_date", "item").unique()
+    expected = (
+        days.join(carried.rename({"report_date": "before"}), on="before")
+        .join(carried.rename({"report_date": "after"}), on=["after", "item"])
+        .select("report_date", "item")
+    )
+    return (
+        expected.join(carried, on=["report_date", "item"], how="anti")
+        .group_by("report_date")
+        .agg(missing=pl.col("item").sort())
+        .sort("report_date")
+    )
