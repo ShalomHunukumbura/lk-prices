@@ -8,9 +8,9 @@ Narahenpita, Marandagahamula, Peliyagoda and Negombo). The numbers are public bu
 about 2,450 PDFs. This pipeline turns them into [Delta Lake](https://delta.io/) tables, which
 will feed a daily food price index.
 
-**Status:** in progress. All 2,449 reports are indexed and the PDFs are downloading. Silver
-reads the 2021-onwards layout: a year of reports loads with no errors. Older layouts, the
-index and the public page are next.
+**Status:** in progress. Every report from August 2016 to today is downloaded and loaded into
+silver, across all three layouts CBSL has used. A local timer adds each new report. The
+price index and the public page are next.
 
 Data: Central Bank of Sri Lanka. This project is not affiliated with CBSL.
 
@@ -29,13 +29,16 @@ silver     PDFs -> parse -> checks -> MERGE into silver/prices (Delta, by year)
   at the first page with nothing new.
 - **fetch** downloads PDFs not yet on disk. Each one is flushed to disk before being
   renamed into place, so a power cut can't leave an empty file under the real name.
-  Interrupted backfills resume where they stopped.
+  Interrupted backfills resume where they stopped. One report (14 September 2022) is served
+  as an empty file; it is listed in `bronze.UNAVAILABLE` and not asked for again.
 - **parse** reads the price table by position, not as plain text: a blank cell would
   otherwise slide every number after it into the wrong market. Each number is matched to the
   column header above it, and the rice and fish sub-headers rename only the columns they sit
   over. The previous-day column is "Yesterday", or after a weekend or holiday "Last Friday"
   or just "Friday". Each layout has its own reader, and a PDF matching no known layout is an
-  error, never a guess.
+  error, never a guess. Reports before June 2017 print no year at all, only "12-Aug" over
+  the Today column, so the year is the one that puts that day nearest the listing date. A
+  market or page still headed with an earlier day wasn't updated that day and is left out.
 - **dates** come from inside each PDF. The listing's dates are wrong for a few dozen
   reports (2019 reports titled 2018, old file names reused for later days), so they are only
   kept as `listed_date` to show where they differ.
