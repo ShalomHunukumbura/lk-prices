@@ -5,6 +5,8 @@ from decimal import Decimal
 import pytest
 from conftest import FIXTURES
 
+from lk_prices import silver
+from lk_prices.checks import problems
 from lk_prices.parse import NotAReport, ParseError, _early_date, _is_day_word, _Word, parse_pdf
 
 
@@ -490,3 +492,42 @@ def test_early_layout_skips_a_page_left_from_an_earlier_day():
     assert {p.report_date for p in prices} == {date(2016, 8, 29)}
     assert {p.section for p in prices} == {"vegetables", "rice", "fish", "other"}
 
+
+REPORTS = [
+    (name, date(int(name[13:17]), int(name[17:19]), int(name[19:21])))
+    for name in sorted(p.name for p in FIXTURES.glob("price_report_20*.pdf"))
+]
+
+
+@pytest.mark.parametrize(("name", "listed"), REPORTS, ids=[n for n, _ in REPORTS])
+def test_every_fixture_report_passes_the_checks(name, listed):
+    # Catches a parser change that reads fine in one test but garbles another
+    # layout's markets or units.
+    try:
+        layout, prices = parse_pdf((FIXTURES / name).read_bytes(), listed=listed)
+    except NotAReport:
+        return
+    assert problems(silver.rows_from(prices, layout, name, listed)) == []
+
+
+def test_excel_errors_in_place_of_both_labels():
+    # 8 June 2020's rice table heads Narahenpita's two columns "#REF! #REF!".
+    _, prices = parse_pdf((FIXTURES / "price_report_20200608_e.pdf").read_bytes())
+    samba = find(prices, "Samba", "Narahenpita", "retail")
+    assert (samba.previous_price, samba.price) == (Decimal("98.00"), Decimal("98.00"))
+    assert samba.compared_with == "Wednesday"
+    assert "Today" not in {p.market for p in prices}
+
+
+def test_a_lower_case_last_friday():
+    # 30 September 2024 prints "last Friday", which once passed for a market row.
+    _, prices = parse_pdf((FIXTURES / "price_report_20240930_e.pdf").read_bytes())
+    assert {p.compared_with for p in prices} == {"Last Friday"}
+    assert {p.market for p in prices} == {
+        "Pettah",
+        "Dambulla",
+        "Narahenpita",
+        "Marandagahamula",
+        "Peliyagoda",
+        "Negombo",
+    }

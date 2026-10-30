@@ -157,7 +157,8 @@ _WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 # CBSL's typing slips in this row so far: "Yesteday", "Last Friay".
 _DAY_WORDS = ["Yesterday", *_WEEKDAYS]
 # "Previous 5 Days Average" (2018) is spread over two or three rows.
-_LABEL_WORDS = {"Last", "Previous", "Week", "Day", "Days", "Average", "5"}
+# "last Friday" is lower case on 30 September 2024.
+_LABEL_WORDS = {"Last", "last", "Previous", "Week", "Day", "Days", "Average", "5"}
 
 
 def _is_day_word(text: str) -> bool:
@@ -176,6 +177,9 @@ _MONTHS = {
 # "27-Apr": in mid-2018 a market's latest prices were from an earlier day, and its
 # "Today" column carries that date instead.
 _STALE_DAY = re.compile(r"\d{1,2}-[A-Z][a-z]{2}")
+
+
+_EXCEL_ERROR = "#REF!"
 
 
 def _is_label_word(text: str) -> bool:
@@ -198,7 +202,8 @@ def _label_text(words: list[_Word]) -> str:
     """
     ordered = sorted(words, key=lambda w: (round(w.top), w.x0))
     named = [w.text for w in ordered if not _DATE_WORD.fullmatch(w.text)]
-    return " ".join(named) if named else ordered[0].text
+    text = " ".join(named) if named else ordered[0].text
+    return text[0].upper() + text[1:]
 
 
 def _day_pairs(rows: list[list[_Word]]) -> tuple[int, list[tuple[list[_Word], _Word]]]:
@@ -220,6 +225,13 @@ def _day_pairs(rows: list[list[_Word]]) -> tuple[int, list[tuple[list[_Word], _W
                 key=lambda w: w.x0,
             )
             band = [w for r in rows[max(0, i - 2) : i + 2] for w in r if _is_label_word(w.text)]
+            # "#REF! #REF!" over one market (8 June 2020's rice table): both labels are
+            # Excel errors, and the first stands for the comparison column.
+            k = 1
+            while k < len(todays):
+                if todays[k - 1].text == todays[k].text == _EXCEL_ERROR:
+                    band.append(todays.pop(k - 1))
+                k += 1
             pairs = []
             for k, today in enumerate(todays):
                 left = todays[k - 1].x1 if k else float("-inf")
@@ -305,6 +317,15 @@ def _header_columns(rows: list[list[_Word]]) -> tuple[list[_Column], int, float]
                     _span_mid(group), pair_mid, market, price_type, "ignored", _label_text(group)
                 )
             )
+    # An Excel error in place of a comparison label takes the label the page's
+    # other columns have.
+    labels = Counter(c.compared_with for c in columns if c.compared_with != _EXCEL_ERROR)
+    if labels:
+        usual = labels.most_common(1)[0][0]
+        columns = [
+            replace(c, compared_with=usual) if c.compared_with == _EXCEL_ERROR else c
+            for c in columns
+        ]
     return columns, i, label_edge
 
 
