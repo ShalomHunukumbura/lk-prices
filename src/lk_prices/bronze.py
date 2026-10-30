@@ -21,6 +21,16 @@ from .cbsl import Report
 
 DATA_DIR = Path(os.environ.get("LK_PRICES_DATA", "data"))
 
+# Reports CBSL lists but has no PDF for. Fetch skips them, so the daily job
+# doesn't fail on them every day. If CBSL fixes one, take it out of this list.
+UNAVAILABLE = {
+    # HTTP 200 with an empty body, every time since the backfill (checked 2026-10-30).
+    (
+        "https://www.cbsl.gov.lk/sites/default/files/cbslweb_documents/statistics/pricerpt/"
+        "price_report_20220914.pdf"
+    ),
+}
+
 INDEX_SCHEMA = {
     "report_date": pl.Date,
     "url": pl.String,
@@ -82,12 +92,16 @@ def known_urls(root: Path = DATA_DIR) -> set[str]:
 
 
 def missing_pdfs(root: Path = DATA_DIR) -> list[Report]:
-    """Reports in the index whose PDF is not on disk yet, newest first."""
+    """Reports in the index whose PDF is not on disk yet, newest first.
+
+    Reports known to have no PDF (UNAVAILABLE) are left out.
+    """
     index = read_index(root)
     missing = [
         Report(row["report_date"], row["url"], row["file_name"], row["title"])
         for row in index.iter_rows(named=True)
-        if not is_saved(pdf_path(row["report_date"], row["file_name"], root))
+        if row["url"] not in UNAVAILABLE
+        and not is_saved(pdf_path(row["report_date"], row["file_name"], root))
     ]
     return sorted(missing, key=lambda r: r.report_date, reverse=True)
 

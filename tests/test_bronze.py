@@ -67,3 +67,13 @@ def test_an_empty_file_left_by_a_power_cut_counts_as_missing(tmp_path, pages, fa
     assert report.url in {r.url for r in bronze.missing_pdfs(tmp_path)}
     cli.fetch(tmp_path, client=fake_client(pages, {report.url: b"%PDF-1.5 fake"}))
     assert path.read_bytes() == b"%PDF-1.5 fake"
+
+
+def test_reports_known_to_have_no_pdf_are_not_fetched(tmp_path, pages, fake_client, monkeypatch):
+    cli.discover(tmp_path, crawl_all=True, client=fake_client(pages))
+    reports = parse_listing(pages[0]) + parse_listing(pages[1])
+    gone, *rest = reports
+    monkeypatch.setattr(bronze, "UNAVAILABLE", {gone.url})
+    assert gone.url not in {r.url for r in bronze.missing_pdfs(tmp_path)}
+    pdfs = {r.url: b"%PDF-1.5 fake" for r in rest}
+    assert cli.fetch(tmp_path, client=fake_client(pages, pdfs)) == 0
