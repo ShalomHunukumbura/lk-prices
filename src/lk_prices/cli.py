@@ -1,4 +1,5 @@
-"""The command line: `lk-prices discover`, `fetch`, `silver`, `rebuild`, `run`, `stats`."""
+"""The command line: `lk-prices discover`, `fetch`, `silver`, `rebuild`, `gold`, `audit`,
+`run`, `stats`."""
 
 from __future__ import annotations
 
@@ -9,8 +10,8 @@ from pathlib import Path
 
 import polars as pl
 
-from . import __version__, bronze, cbsl, silver
-from .checks import implausible, problems
+from . import __version__, bronze, cbsl, flags, gold, silver
+from .checks import implausible, missing_items, problems
 from .parse import NotAReport, ParseError, parse_pdf
 
 
@@ -144,6 +145,55 @@ def rebuild_silver(root: Path) -> None:
     )
 
 
+def build_gold(root: Path, version: int | None = None) -> None:
+    tables = gold.build(root, version)
+    headline = tables["index"].filter(
+        (pl.col("basket") == "all") & (pl.col("price_type") == "retail")
+    )
+    latest = headline.sort("month").row(-1, named=True)
+    print(
+        f"gold: index to {latest['month']:%B %Y} at {latest['index']:.1f} "
+        f"(August 2016 = 100), from silver version {latest['silver_version']}"
+    )
+
+
+def audit(root: Path) -> None:
+    """The data quality picture across the whole of silver."""
+    flagged = flags.flag(silver.read(root))
+    checked = flagged["checked"].sum()
+    restated = flagged["restated"].sum()
+    print(f"{flagged.height} prices, {flagged['report_date'].n_unique()} reports")
+    print(
+        f"cross-check: {checked} prices have a next-day report that repeats them; "
+        f"{(1 - restated / checked) * 100:.2f}% agree"
+    )
+    print(
+        f"jumps of 3x or more: {flagged['jump'].sum()}; left out of the index as "
+        f"typing slips: {flagged['suspect'].sum()}"
+    )
+    gaps = missing_items(flagged)
+    print(
+        f"reports missing an item both neighbours carry: {gaps.height} "
+        f"({gaps['missing'].list.len().sum()} items in all)"
+    )
+    with pl.Config(tbl_rows=20, tbl_hide_dataframe_shape=True, fmt_str_lengths=80):
+        print(gaps.sort(pl.col("missing").list.len(), descending=True).head(5))
+        print(
+            flagged.filter("suspect")
+            .select("report_date", "item", "market", "price_type", "price")
+            .sort("report_date")
+        )
+        by_month = gold.monthly(gold.trusted(silver.read(root)))
+        index_rows = pl.concat([gold.index(by_month, "retail"), gold.index(by_month, "wholesale")])
+        for start, end in ((2017, 2021), (2021, 2025)):
+            print(f"index change {start} to {end} against the truth (see gold.validate):")
+            print(
+                gold.validate(by_month, index_rows, start, end).with_columns(
+                    pl.col("truth", "index").round(2), pl.col("off_pct").round(1)
+                )
+            )
+
+
 def stats(root: Path) -> None:
     index = bronze.read_index(root)
     if index.is_empty():
@@ -183,7 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     cmd = sub.add_parser("silver", help="parse new PDFs into the silver table")
     cmd.add_argument("--batch", type=int, default=200, help="reports per MERGE")
     sub.add_parser("rebuild", help="re-parse every PDF and replace silver")
-    sub.add_parser("run", help="discover, fetch, then load silver (the daily job)")
+    cmd = sub.add_parser("gold", help="build the index, monthly prices and margins")
+    cmd.add_argument("--version", type=int, default=None, help="silver version to build from")
+    sub.add_parser("audit", help="cross-checks, flagged prices and index validation")
+    sub.add_parser("run", help="discover, fetch, load silver, build gold (the daily job)")
     sub.add_parser("stats", help="reports and downloads per year")
 
     args = parser.parse_args(argv)
@@ -198,11 +251,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "rebuild":
         rebuild_silver(args.data)
         return 0
+    if args.command == "gold":
+        build_gold(args.data, args.version)
+        return 0
+    if args.command == "audit":
+        audit(args.data)
+        return 0
     if args.command == "run":
         client = cbsl.Client()
         discover(args.data, client=client)
         failed = fetch(args.data, client=client)
         _, rejected = load_silver(args.data)
+        build_gold(args.data)
         return 1 if failed or rejected else 0
     if args.command == "stats":
         stats(args.data)
