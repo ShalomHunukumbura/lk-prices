@@ -5,12 +5,17 @@ working day since August 2016 the Central Bank of Sri Lanka has published a
 [Daily Price Report](https://www.cbsl.gov.lk/en/statistics/economic-indicators/price-report):
 wholesale and retail prices for about 50 food items in the main markets (Pettah, Dambulla,
 Narahenpita, Marandagahamula, Peliyagoda and Negombo). The numbers are public but locked in
-about 2,450 PDFs. This pipeline turns them into [Delta Lake](https://delta.io/) tables, which
-will feed a daily food price index.
+about 2,450 PDFs. This pipeline turns them into [Delta Lake](https://delta.io/) tables and a
+monthly food price index.
 
-**Status:** in progress. Every report from August 2016 to today is downloaded and loaded into
-silver, across all three layouts CBSL has used. A local timer adds each new report. The
-price index and the public page are next.
+**Status:** in progress. Every report from August 2016 to today is loaded, across all three
+layouts CBSL has used, and a local timer adds each new one. Gold has a monthly food price
+index, monthly prices and market margins. The public page is next.
+
+Food prices at retail roughly tripled in ten years: the index stands at 322 (August 2016 =
+100). From October 2021 to October 2022 it rose 88%, between the official food inflation
+figures for September 2022 (85.8% national NCPI, 94.9% Colombo CCPI), from nothing but
+CBSL's market prices.
 
 Data: Central Bank of Sri Lanka. This project is not affiliated with CBSL.
 
@@ -20,6 +25,7 @@ Data: Central Bank of Sri Lanka. This project is not affiliated with CBSL.
 discover   listing pages -> bronze/reports (Delta: one row per report link)
 fetch      bronze/reports -> bronze/pdf/year=YYYY/*.pdf (as served)
 silver     PDFs -> parse -> checks -> MERGE into silver/prices (Delta, by year)
+gold       silver -> flags -> monthly prices -> index, margins (Delta, rebuilt each run)
 ```
 
 - **discover** reads CBSL's listing, newest first. File names change over the years
@@ -52,6 +58,27 @@ silver     PDFs -> parse -> checks -> MERGE into silver/prices (Delta, by year)
   `rebuild` re-parses everything after a parser change, and the old version stays readable
   through Delta's time travel.
 
+- **flags** mark prices silver keeps as printed but the index shouldn't trust. A price 3
+  times its neighbours that goes straight back the next day is a typing slip (coconut oil
+  at Rs 570, 85, 570). Each report's "Yesterday" column also repeats the previous
+  report's prices: 99.73% of 243,686 agree, which is a check on the parser as much as on
+  CBSL. Nine prices in ten years are left out of the index.
+- **gold** is rebuilt from silver on every run, and can be rebuilt from any past silver
+  version (`lk-prices gold --version N`), so a published number can be reproduced.
+  - The **index** is monthly, chain-linked, with equal weight per item (a Jevons index,
+    as statistics offices use below the weighting level). Items and markets come and go
+    over ten years, so each month is compared with the one before on the series priced
+    in both. A daily chain was tried first and drifted: vegetables go "n.a." when they
+    are scarce and dear, and each gap lost part of the rise. CBSL also dropped the fish
+    and fruit tables from early 2019 to July 2020; those sections are bridged across the
+    gap, and the headline isn't.
+  - `lk-prices audit` checks the index against each series' average price from one year
+    to another. From 2021 to 2025 it is within 10% for every section. Wholesale fruit
+    before 2020 is the weakest part: three items, one market.
+  - **Margins** are the median retail markup over wholesale, per item, market and
+    month. Pettah's fell from about 17% to 11% in 2022, as retailers absorbed part of
+    the crisis.
+
 It runs on plain Python with [Polars](https://pola.rs/),
 [delta-rs](https://github.com/delta-io/delta-rs) and
 [pdfplumber](https://github.com/jsvine/pdfplumber). No Spark, no JVM.
@@ -63,8 +90,10 @@ uv sync
 uv run lk-prices discover --all   # first time: read the whole listing (~1 hour)
 uv run lk-prices fetch            # download every PDF (~8 hours at 10 s apart)
 uv run lk-prices silver           # parse into the silver table
+uv run lk-prices gold             # build the index, monthly prices and margins
+uv run lk-prices audit            # cross-checks, flagged prices, index validation
 uv run lk-prices stats            # reports, downloads and silver rows per year
-uv run lk-prices run              # the daily job: discover, fetch, silver
+uv run lk-prices run              # the daily job: discover, fetch, silver, gold
 uv run pytest
 ```
 
