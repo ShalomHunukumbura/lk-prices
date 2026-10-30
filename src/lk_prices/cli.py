@@ -1,5 +1,5 @@
 """The command line: `lk-prices discover`, `fetch`, `silver`, `rebuild`, `gold`, `audit`,
-`run`, `stats`."""
+`maintain`, `run`, `stats`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from . import __version__, bronze, cbsl, flags, gold, silver
+from . import __version__, bronze, cbsl, flags, gold, maintain, silver
 from .checks import implausible, missing_items, problems
 from .parse import NotAReport, ParseError, parse_pdf
 
@@ -238,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     cmd = sub.add_parser("gold", help="build the index, monthly prices and margins")
     cmd.add_argument("--version", type=int, default=None, help="silver version to build from")
     sub.add_parser("audit", help="cross-checks, flagged prices and index validation")
+    sub.add_parser("maintain", help="compact, checkpoint and vacuum every table (weekly)")
     sub.add_parser("run", help="discover, fetch, load silver, build gold (the daily job)")
     sub.add_parser("stats", help="reports and downloads per year")
 
@@ -258,6 +259,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "audit":
         audit(args.data)
+        return 0
+    if args.command == "maintain":
+        for r in maintain.maintain_all(args.data):
+            print(
+                f"  {r.table}: {r.files_before} -> {r.files_after} files "
+                f"({r.compacted} compacted, {r.vacuumed} vacuumed)"
+            )
         return 0
     if args.command == "run":
         client = cbsl.Client()
