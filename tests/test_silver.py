@@ -198,3 +198,16 @@ def test_units_come_from_the_catalogue_and_must_agree_with_it():
         unit=pl.when(pl.col("item") == "Beans").then(pl.lit("l")).otherwise("unit")
     )
     assert any("unexpected unit (Beans)" in p for p in problems(misread))
+
+
+def test_an_early_report_loads_with_its_year_from_the_listing(tmp_path):
+    land(tmp_path, date(2016, 8, 1), "price_report_20160801e.pdf", "price_report_20160801e.pdf")
+    assert cli.load_silver(tmp_path) == (1, 0)
+    loaded = silver.read(tmp_path)
+    assert set(loaded["report_date"]) == {date(2016, 8, 1)}
+    assert set(loaded["layout"]) == {"early"}
+    # Printed "Rs./Kg" that day only; it's the same per-litre product.
+    oil = loaded.filter(pl.col("item") == "Coconut oil")
+    assert set(oil["unit"]) == {"l"}
+    assert set(oil["unit_as_printed"]) == {"kg"}
+

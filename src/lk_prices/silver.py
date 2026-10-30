@@ -86,6 +86,14 @@ def _item(printed: str) -> str:
     return items.canonical(tidy) or tidy
 
 
+def _unit(p: Price) -> str | None:
+    # The printed unit, unless the table printed none or is a known misprint.
+    name = _item(p.item)
+    if p.unit is None or items.is_unit_misprint(name, p.unit, p.report_date):
+        return items.unit(name)
+    return p.unit
+
+
 def rows_from(
     prices: list[Price], layout: str, source_file: str, listed_date: date | None = None
 ) -> pl.DataFrame:
@@ -99,7 +107,7 @@ def rows_from(
                 "section": items.section(_item(p.item)) or p.section,
                 "item": _item(p.item),
                 "item_as_printed": p.item,
-                "unit": p.unit or items.unit(_item(p.item)),
+                "unit": _unit(p),
                 "unit_as_printed": p.unit,
                 "market": p.market,
                 "price_type": p.price_type,

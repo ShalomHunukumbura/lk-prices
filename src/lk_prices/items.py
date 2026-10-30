@@ -17,6 +17,8 @@ looked at and mapped on purpose instead of quietly becoming a new item.
 
 from __future__ import annotations
 
+from datetime import date
+
 # Canonical name -> section.
 CATALOGUE = {
     # vegetables
@@ -106,7 +108,7 @@ ALIASES = {
 
 
 # Every item is priced per kg except these. Checked against every report: no item
-# has ever been printed with two different units.
+# has been printed with two different units, apart from the misprints below.
 UNITS = {
     "Apple (Imp)": "each",
     "Coconut (Avg.)": "nut",
@@ -114,6 +116,18 @@ UNITS = {
     "Egg (White)": "each",
     "Orange (Imp)": "each",
 }
+
+
+# (item, unit as printed) -> the dates it was misprinted. Coconut oil was "Rs./Kg"
+# on 1 and 2 August 2016 only; the price carries straight on into the "Rs./Ltr"
+# reports from 3 August (Pettah retail 250, then 260), so it's the same product.
+UNIT_MISPRINTS = {
+    ("Coconut oil", "kg"): {date(2016, 8, 1), date(2016, 8, 2)},
+}
+
+
+def is_unit_misprint(name: str, printed: str | None, day: date) -> bool:
+    return day in UNIT_MISPRINTS.get((name, printed), set())
 
 
 def unit(name: str) -> str | None:
