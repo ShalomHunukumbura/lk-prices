@@ -1,5 +1,5 @@
 """The command line: `lk-prices discover`, `fetch`, `silver`, `rebuild`, `gold`, `audit`,
-`maintain`, `run`, `stats`."""
+`maintain`, `export`, `run`, `stats`."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
-from . import __version__, bronze, cbsl, flags, gold, maintain, silver
+from . import __version__, bronze, cbsl, export, flags, gold, maintain, silver
 from .checks import implausible, missing_items, problems
 from .parse import NotAReport, ParseError, parse_pdf
 
@@ -239,7 +239,9 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--version", type=int, default=None, help="silver version to build from")
     sub.add_parser("audit", help="cross-checks, flagged prices and index validation")
     sub.add_parser("maintain", help="compact, checkpoint and vacuum every table (weekly)")
-    sub.add_parser("run", help="discover, fetch, load silver, build gold (the daily job)")
+    cmd = sub.add_parser("export", help="write the page's data (derived figures only)")
+    cmd.add_argument("--out", type=Path, default=export.SITE_DATA, help="output folder")
+    sub.add_parser("run", help="discover, fetch, silver, gold, export (the daily job)")
     sub.add_parser("stats", help="reports and downloads per year")
 
     args = parser.parse_args(argv)
@@ -260,6 +262,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "audit":
         audit(args.data)
         return 0
+    if args.command == "export":
+        written = export.export(args.data, args.out)
+        print(f"export: {len(written)} files in {args.out}")
+        return 0
     if args.command == "maintain":
         for r in maintain.maintain_all(args.data):
             print(
@@ -273,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         failed = fetch(args.data, client=client)
         _, rejected = load_silver(args.data)
         build_gold(args.data)
+        export.export(args.data)
         return 1 if failed or rejected else 0
     if args.command == "stats":
         stats(args.data)

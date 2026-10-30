@@ -7,7 +7,7 @@ dist/
 *.tmp
 
 # Raw pages and lakehouse tables stay on this machine; only the page data is published.
-data/
+/data/
 
 # The explainer stays local.
 explain.md

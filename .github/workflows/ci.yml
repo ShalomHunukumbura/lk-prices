@@ -3,7 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
-    paths-ignore: ["data/**"]
+    paths-ignore: ["data/**", "site/data/**"]
   pull_request:
 
 jobs:

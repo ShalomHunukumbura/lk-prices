@@ -8,9 +8,9 @@ Narahenpita, Marandagahamula, Peliyagoda and Negombo). The numbers are public bu
 about 2,450 PDFs. This pipeline turns them into [Delta Lake](https://delta.io/) tables and a
 monthly food price index.
 
-**Status:** in progress. Every report from August 2016 to today is loaded, across all three
-layouts CBSL has used, and a local timer adds each new one. Gold has a monthly food price
-index, monthly prices and market margins. The public page is next.
+Every report from August 2016 to today is loaded, across all three layouts CBSL has used, and
+a local timer adds each new one. The page shows the index, item prices, market margins and
+the latest moves: **[shalomhunukumbura.github.io/lk-prices](https://shalomhunukumbura.github.io/lk-prices/)**.
 
 Food prices at retail roughly tripled in ten years: the index stands at 322 (August 2016 =
 100). From October 2021 to October 2022 it rose 88%, between the official food inflation
@@ -26,6 +26,8 @@ discover   listing pages -> bronze/reports (Delta: one row per report link)
 fetch      bronze/reports -> bronze/pdf/year=YYYY/*.pdf (as served)
 silver     PDFs -> parse -> checks -> MERGE into silver/prices (Delta, by year)
 gold       silver -> flags -> monthly prices -> index, margins (Delta, rebuilt each run)
+export     gold -> site/data/*.json -> GitHub Pages
+maintain   compact, checkpoint, vacuum (weekly)
 ```
 
 - **discover** reads CBSL's listing, newest first. File names change over the years
@@ -79,6 +81,27 @@ gold       silver -> flags -> monthly prices -> index, margins (Delta, rebuilt e
     month. Pettah's fell from about 17% to 11% in 2022, as retailers absorbed part of
     the crisis.
 
+- **maintain** runs weekly: compaction, a checkpoint, vacuum and log cleanup, keeping 30
+  days of history so `gold --version` can go back that far. Every daily MERGE adds small
+  files, so `scripts/bench_maintenance.py` replays 237 daily loads on a copy of silver and
+  measures:
+
+  | | before | after |
+  |---|---:|---:|
+  | files in the current version | 252 | 12 |
+  | data files on disk | 313 | 51 |
+  | open the table | 37.6 ms | 5.2 ms |
+  | read everything | 81.5 ms | 22.3 ms |
+  | one item at one market | 93.2 ms | 14.3 ms |
+
+  At this size every read is fast either way; what grows without maintenance is the file
+  count, and with it every read. The rejects table had a worse problem: one commit per
+  report, so 4 rows took 1,728 commits and 1,179 files. It now writes once per batch.
+- **The page** publishes derived figures only (the index, monthly medians, margins and the
+  latest moves), credited to CBSL with links to its PDFs. CBSL's site says "All Rights
+  Reserved" and offers no reuse licence, so the daily price tables aren't republished.
+  USD prices use monthly rates from [lkr-rates](https://github.com/ShalomHunukumbura/lkr-rates).
+
 It runs on plain Python with [Polars](https://pola.rs/),
 [delta-rs](https://github.com/delta-io/delta-rs) and
 [pdfplumber](https://github.com/jsvine/pdfplumber). No Spark, no JVM.
@@ -92,8 +115,10 @@ uv run lk-prices fetch            # download every PDF (~8 hours at 10 s apart)
 uv run lk-prices silver           # parse into the silver table
 uv run lk-prices gold             # build the index, monthly prices and margins
 uv run lk-prices audit            # cross-checks, flagged prices, index validation
+uv run lk-prices export           # write site/data for the page
+uv run lk-prices maintain         # compact, checkpoint and vacuum (weekly)
 uv run lk-prices stats            # reports, downloads and silver rows per year
-uv run lk-prices run              # the daily job: discover, fetch, silver, gold
+uv run lk-prices run              # the daily job: discover, fetch, silver, gold, export
 uv run pytest
 ```
 
