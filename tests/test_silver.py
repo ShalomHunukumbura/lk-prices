@@ -219,3 +219,15 @@ def test_merge_refuses_a_table_with_other_columns(root):
     land(root, date(2016, 8, 1), "price_report_20160801e.pdf", "price_report_20160801e.pdf")
     with pytest.raises(silver.SchemaMismatch, match="unit_as_printed.*lk-prices rebuild"):
         cli.load_silver(root)
+
+
+def test_rejects_are_written_once_per_batch(root):
+    land(root, date(2025, 9, 24), "price_report_20250924_e.pdf", "price_report_20250924_e.pdf")
+    land(root, date(2022, 3, 16), "price_report_20220316.pdf", "price_report_20220316.pdf")
+    cli.load_silver(root)
+    rejects = DeltaTable(str(silver.rejects_path(root)))
+    assert rejects.version() == 0  # both rejects in one write; the good report adds nothing
+    assert set(silver.read_rejects(root)["source_file"]) == {
+        "price_report_20250924_e.pdf",
+        "price_report_20220316.pdf",
+    }

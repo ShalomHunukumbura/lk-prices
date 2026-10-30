@@ -103,17 +103,18 @@ def load_silver(root: Path, batch_size: int = 200) -> tuple[int, int]:
     print(f"silver: {len(todo)} reports to load")
     loaded = rejected = 0
     for start in range(0, len(todo), batch_size):
-        frames = []
+        frames, parsed, errors = [], [], {}
         for listed, path in todo[start : start + batch_size]:
             try:
                 frames.append(_parse_file(path, listed, root))
-                silver.clear_reject(path.name, root)
+                parsed.append(path.name)
             except ParseError as error:
                 # Notices and image-only PDFs are recorded but aren't failures:
                 # there is nothing to fix. Anything else needs a look.
                 if not isinstance(error, NotAReport):
                     rejected += 1
-                silver.record_reject(path.name, str(error), root)
+                errors[path.name] = str(error)
+        silver.update_rejects(errors, parsed, root)
         if frames:
             result = silver.merge(silver.latest_upload(pl.concat(frames)), root)
             loaded += len(frames)
@@ -127,13 +128,14 @@ def load_silver(root: Path, batch_size: int = 200) -> tuple[int, int]:
 
 def rebuild_silver(root: Path) -> None:
     """Re-read every PDF and replace silver, after a change to the parser."""
-    frames = []
+    frames, parsed, errors = [], [], {}
     for listed, path in _pdfs_on_disk(root):
         try:
             frames.append(_parse_file(path, listed, root))
-            silver.clear_reject(path.name, root)
+            parsed.append(path.name)
         except ParseError as error:
-            silver.record_reject(path.name, str(error), root)
+            errors[path.name] = str(error)
+    silver.update_rejects(errors, parsed, root)
     if not frames:
         print("rebuild: nothing parsed", file=sys.stderr)
         return

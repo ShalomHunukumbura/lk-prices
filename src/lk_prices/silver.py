@@ -253,20 +253,34 @@ def read_quarantine(root: Path = DATA_DIR) -> pl.DataFrame:
     return pl.read_delta(str(path))
 
 
-def record_reject(source_file: str, error: str, root: Path = DATA_DIR) -> None:
-    row = pl.DataFrame(
-        [{"source_file": source_file, "error": error, "rejected_at": datetime.now(UTC)}],
+def update_rejects(rejected: dict[str, str], loaded: list[str], root: Path = DATA_DIR) -> None:
+    """Record a batch's rejects and clear the files that now load: two commits at most.
+
+    One commit per file made a table of four rows grow 1,728 commits and 1,179 files:
+    every report that loaded ran a delete, which commits even when nothing matches.
+    """
+    path = rejects_path(root)
+    exists = DeltaTable.is_deltatable(str(path))
+    if exists and loaded:
+        stale = set(loaded) & set(read_rejects(root)["source_file"])
+        if stale:
+            names = ", ".join("'" + n.replace("'", "''") + "'" for n in sorted(stale))
+            DeltaTable(str(path)).delete(f"source_file IN ({names})")
+    if not rejected:
+        return
+    now = datetime.now(UTC)
+    rows = pl.DataFrame(
+        [{"source_file": f, "error": e, "rejected_at": now} for f, e in rejected.items()],
         schema=REJECT_SCHEMA,
     )
-    path = rejects_path(root)
-    if not DeltaTable.is_deltatable(str(path)):
+    if not exists:
         path.parent.mkdir(parents=True, exist_ok=True)
-        write_deltalake(str(path), row)
+        write_deltalake(str(path), rows)
         return
     (
         DeltaTable(str(path))
         .merge(
-            source=row,
+            source=rows,
             predicate="t.source_file = s.source_file",
             source_alias="s",
             target_alias="t",
@@ -275,12 +289,6 @@ def record_reject(source_file: str, error: str, root: Path = DATA_DIR) -> None:
         .when_not_matched_insert_all()
         .execute()
     )
-
-
-def clear_reject(source_file: str, root: Path = DATA_DIR) -> None:
-    path = rejects_path(root)
-    if DeltaTable.is_deltatable(str(path)):
-        DeltaTable(str(path)).delete(f"source_file = '{source_file}'")
 
 
 def read_rejects(root: Path = DATA_DIR) -> pl.DataFrame:
