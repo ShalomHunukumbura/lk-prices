@@ -4,7 +4,7 @@ from datetime import date
 import polars as pl
 import pytest
 from conftest import FIXTURES
-from deltalake import DeltaTable
+from deltalake import DeltaTable, write_deltalake
 
 from lk_prices import bronze, cli, silver
 from lk_prices.cbsl import Report
@@ -211,3 +211,11 @@ def test_an_early_report_loads_with_its_year_from_the_listing(tmp_path):
     assert set(oil["unit"]) == {"l"}
     assert set(oil["unit_as_printed"]) == {"kg"}
 
+
+def test_merge_refuses_a_table_with_other_columns(root):
+    cli.load_silver(root)
+    old = silver.read(root).drop("unit_as_printed")
+    write_deltalake(str(silver.prices_path(root)), old, mode="overwrite", schema_mode="overwrite")
+    land(root, date(2016, 8, 1), "price_report_20160801e.pdf", "price_report_20160801e.pdf")
+    with pytest.raises(silver.SchemaMismatch, match="unit_as_printed.*lk-prices rebuild"):
+        cli.load_silver(root)

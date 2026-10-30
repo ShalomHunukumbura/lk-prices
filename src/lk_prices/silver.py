@@ -152,6 +152,10 @@ def latest_upload(rows: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+class SchemaMismatch(RuntimeError):
+    """The stored table was written with different columns than the code has now."""
+
+
 @dataclass(frozen=True)
 class MergeResult:
     inserted: int
@@ -167,6 +171,14 @@ def merge(rows: pl.DataFrame, root: Path = DATA_DIR) -> MergeResult:
         path.parent.mkdir(parents=True, exist_ok=True)
         write_deltalake(str(path), rows, partition_by=["year"])
         return MergeResult(rows.height, 0)
+    # MERGE drops source columns the table doesn't have, without a word. A table
+    # written before a schema change has to be rebuilt instead.
+    stored_columns = set(pl.scan_delta(str(path)).collect_schema())
+    if stored_columns != set(SCHEMA):
+        raise SchemaMismatch(
+            f"silver's columns differ from the code's (missing {sorted(set(SCHEMA) - stored_columns)},"
+            f" extra {sorted(stored_columns - set(SCHEMA))}); run `lk-prices rebuild`"
+        )
     # A day may already be in silver from another file (CBSL uploaded the 21 June
     # 2022 report again as "22 June"). Decide between the stored rows and the new
     # ones with the same rule as within a batch, so the load order doesn't matter.
